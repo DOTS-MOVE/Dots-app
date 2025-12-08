@@ -1,4 +1,4 @@
-import { Event } from '@/types';
+import { Event, Sport } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -220,8 +220,8 @@ export class ApiClient {
   }
 
   // Sports & Goals
-  async getSports() {
-    return this.request('/sports');
+  async getSports(): Promise<Sport[]> {
+    return this.request<Sport[]>('/sports');
   }
 
   async getGoals() {
