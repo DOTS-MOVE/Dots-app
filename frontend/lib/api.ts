@@ -162,12 +162,12 @@ export class ApiClient {
   }
 
   // Messages
-  async getConversations() {
-    return this.request('/messages/conversations');
+  async getConversations(): Promise<Conversation[]> {
+    return this.request<Conversation[]>('/messages/conversations');
   }
 
-  async getConversation(conversationId: number, type: 'user' | 'event' | 'group' = 'user') {
-    return this.request(`/messages/conversations/${conversationId}?conversation_type=${type}`);
+  async getConversation(conversationId: number, type: 'user' | 'event' | 'group' = 'user'): Promise<any[]> {
+    return this.request<any[]>(`/messages/conversations/${conversationId}?conversation_type=${type}`);
   }
 
   async sendMessage(data: { content: string; receiver_id?: number; event_id?: number; group_id?: number }) {
