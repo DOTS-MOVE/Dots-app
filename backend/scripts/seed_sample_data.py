@@ -4,7 +4,7 @@ Run with: PYTHONPATH=/path/to/backend python scripts/seed_sample_data.py
 """
 from sqlalchemy.orm import Session
 from core.database import SessionLocal
-from models.user import User
+from models.user import User, UserRole
 from models.event import Event
 from models.sport import Sport
 from models.goal import Goal
@@ -95,6 +95,32 @@ def seed_sample_data(db: Session):
     if not sports or not goals:
         print("❌ Please run seed_data.py first to populate sports and goals!")
         return
+    
+    # Create admin user first
+    print("👑 Creating admin user...")
+    admin_email = "admin@dots.app"
+    admin_user = db.query(User).filter(User.email == admin_email).first()
+    if not admin_user:
+        admin_user = User(
+            email=admin_email,
+            hashed_password=get_password_hash("admin123"),
+            full_name="Admin User",
+            age=30,
+            location="San Francisco, CA",
+            bio="System Administrator",
+            role=UserRole.ADMIN,
+            avatar_url="https://picsum.photos/seed/admin/400/400"
+        )
+        db.add(admin_user)
+        db.flush()
+        print(f"  ✅ Created admin user: {admin_email} / admin123")
+    else:
+        # Update existing admin user to ensure it has admin role
+        admin_user.role = UserRole.ADMIN
+        if not admin_user.avatar_url:
+            admin_user.avatar_url = "https://picsum.photos/seed/admin/400/400"
+        db.flush()
+        print(f"  ✅ Admin user already exists: {admin_email} / admin123")
     
     # Create sample users
     print("👥 Creating sample users...")

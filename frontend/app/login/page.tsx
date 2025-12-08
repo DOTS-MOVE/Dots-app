@@ -38,6 +38,15 @@ export default function LoginPage() {
           <p className="text-gray-700 text-sm font-medium">Meet. Move. Motivate.</p>
         </div>
 
+        {/* Admin Credentials */}
+        <div className="bg-[#E6F9F4] border border-[#00D9A5] rounded-xl p-4 mb-6">
+          <p className="text-sm font-semibold text-[#00B88A] mb-2">🔑 Admin Access:</p>
+          <div className="text-xs text-gray-700 space-y-1">
+            <p><strong>Email:</strong> admin@dots.app</p>
+            <p><strong>Password:</strong> admin123</p>
+          </div>
+        </div>
+
         {/* Sign In Form */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
