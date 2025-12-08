@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { api } from './api';
 import { User } from '@/types';
+import { currentUser } from './mockData';
 
 interface AuthContextType {
   user: User | null;
@@ -20,13 +21,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      api.setToken(token);
-      refreshUser().finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+    // Auto-login with mock data
+    api.setToken('mock_token');
+    setUser(currentUser);
+    setLoading(false);
   }, []);
 
   const refreshUser = async () => {
