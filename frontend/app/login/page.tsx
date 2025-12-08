@@ -11,15 +11,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login, user } = useAuth();
+  const { login } = useAuth();
   const router = useRouter();
-
-  // Redirect if already logged in
-  useEffect(() => {
-    if (user) {
-      router.push('/');
-    }
-  }, [user, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,7 +21,8 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
-      // Login updates user state, useEffect will handle redirect
+      // Navigate directly without waiting for auth state
+      window.location.href = '/';
     } catch (err: any) {
       setError(err.message || 'Failed to login');
       setLoading(false);

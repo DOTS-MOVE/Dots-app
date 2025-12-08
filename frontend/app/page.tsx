@@ -29,10 +29,16 @@ export default function Home() {
 
   useEffect(() => {
     if (!loading && mounted) {
-      if (!user) {
-        router.push('/login');
-        return;
-      }
+      // Only redirect if we're sure user is not logged in (after a delay to allow auth to load)
+      const checkAuth = setTimeout(() => {
+        if (!user) {
+          router.push('/login');
+          return;
+        }
+        loadData();
+      }, 500);
+      return () => clearTimeout(checkAuth);
+    } else if (user && mounted) {
       loadData();
     }
   }, [user, loading, mounted]);
