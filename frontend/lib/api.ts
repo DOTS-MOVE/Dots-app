@@ -1,4 +1,4 @@
-import { Event, Sport } from '@/types';
+import { Event, Sport, User } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -76,12 +76,12 @@ export class ApiClient {
   }
 
   // Users
-  async getCurrentUser() {
-    return this.request('/users/me');
+  async getCurrentUser(): Promise<User> {
+    return this.request<User>('/users/me');
   }
 
-  async getUser(userId: number) {
-    return this.request(`/users/${userId}`);
+  async getUser(userId: number): Promise<User> {
+    return this.request<User>(`/users/${userId}`);
   }
 
   async updateUser(data: any) {
@@ -92,13 +92,13 @@ export class ApiClient {
   }
 
   // Events
-  async getEvents(params?: { sport_id?: number; location?: string; search?: string }) {
+  async getEvents(params?: { sport_id?: number; location?: string; search?: string }): Promise<Event[]> {
     const query = new URLSearchParams();
     if (params?.sport_id) query.append('sport_id', params.sport_id.toString());
     if (params?.location) query.append('location', params.location);
     if (params?.search) query.append('search', params.search);
     
-    return this.request(`/events?${query.toString()}`);
+    return this.request<Event[]>(`/events?${query.toString()}`);
   }
 
   async getEvent(eventId: number): Promise<Event> {
