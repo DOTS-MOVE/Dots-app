@@ -278,11 +278,14 @@ export class ApiClient {
   async addGroupMembers(groupId: number, user_ids: number[]): Promise<void> {
     await delay(300);
     const group = mockGroupChats.find(g => g.id === groupId);
-    if (group && group.members) {
+    if (group) {
+      if (!group.members) {
+        group.members = [];
+      }
       user_ids.forEach(id => {
         const user = mockUsers.find(u => u.id === id);
-        if (user && !group.members?.some(m => m.id === id)) {
-          group.members.push({ id: user.id, full_name: user.full_name, avatar_url: user.avatar_url, is_admin: false });
+        if (user && !group.members!.some(m => m.id === id)) {
+          group.members!.push({ id: user.id, full_name: user.full_name, avatar_url: user.avatar_url, is_admin: false });
         }
       });
     }
