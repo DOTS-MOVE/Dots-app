@@ -28,14 +28,14 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!loading) {
+    if (!loading && mounted) {
       if (!user) {
         router.push('/login');
         return;
       }
       loadData();
     }
-  }, [user, loading]);
+  }, [user, loading, mounted]);
 
   useEffect(() => {
     filterEvents();

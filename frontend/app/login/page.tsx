@@ -21,10 +21,13 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
-      router.push('/');
+      // Wait a bit for auth state to update, then redirect
+      setTimeout(() => {
+        router.push('/');
+        router.refresh();
+      }, 100);
     } catch (err: any) {
       setError(err.message || 'Failed to login');
-    } finally {
       setLoading(false);
     }
   };
