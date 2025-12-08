@@ -1,4 +1,4 @@
-import { Event, Sport, User, Match } from '@/types';
+import { Event, Sport, User, Match, GroupChat, Conversation } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -178,12 +178,12 @@ export class ApiClient {
   }
 
   // Group Chats
-  async getGroups() {
-    return this.request('/groups');
+  async getGroups(): Promise<GroupChat[]> {
+    return this.request<GroupChat[]>('/groups');
   }
 
-  async getGroup(groupId: number) {
-    return this.request(`/groups/${groupId}`);
+  async getGroup(groupId: number): Promise<GroupChat> {
+    return this.request<GroupChat>(`/groups/${groupId}`);
   }
 
   async createGroup(data: { name: string; description?: string; member_ids: number[] }) {
