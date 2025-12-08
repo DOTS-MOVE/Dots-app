@@ -82,6 +82,13 @@ export interface Conversation {
   unread_count: number;
 }
 
+export interface GroupMember {
+  id: number;
+  full_name: string | null;
+  avatar_url: string | null;
+  is_admin: boolean;
+}
+
 export interface GroupChat {
   id: number;
   name: string;
@@ -90,7 +97,7 @@ export interface GroupChat {
   created_by_id: number;
   created_at: string;
   updated_at: string | null;
-  members?: User[];
-  created_by?: User;
+  members?: GroupMember[];
+  created_by?: GroupMember;
 }
 
