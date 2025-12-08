@@ -1,4 +1,4 @@
-import { Event, Sport, User } from '@/types';
+import { Event, Sport, User, Match } from '@/types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -132,13 +132,13 @@ export class ApiClient {
   }
 
   // Matches
-  async getSuggestedMatches(limit = 10, minScore = 30, offset = 0) {
-    return this.request(`/matches/suggested?limit=${limit}&min_score=${minScore}&offset=${offset}`);
+  async getSuggestedMatches(limit = 10, minScore = 30, offset = 0): Promise<any[]> {
+    return this.request<any[]>(`/matches/suggested?limit=${limit}&min_score=${minScore}&offset=${offset}`);
   }
 
-  async getMatches(status?: string) {
+  async getMatches(status?: string): Promise<Match[]> {
     const query = status ? `?status=${status}` : '';
-    return this.request(`/matches${query}`);
+    return this.request<Match[]>(`/matches${query}`);
   }
 
   async createMatch(user2Id: number) {
