@@ -6,17 +6,43 @@ import { User } from '@/types';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY || '';
 
+// Create a dummy client during build if env vars are missing
+let supabaseClient: ReturnType<typeof createClient>;
+
 if (!supabaseUrl || !supabasePublishableKey) {
-  console.warn('Supabase URL or Publishable Key not configured. Please check your .env.local file.');
+  // During build time, create a dummy client to avoid errors
+  // This will be replaced with the real client at runtime
+  if (typeof window === 'undefined') {
+    // Server-side/build time: use dummy values
+    supabaseClient = createClient('https://placeholder.supabase.co', 'placeholder-key', {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    });
+  } else {
+    // Client-side: warn but still create client (will fail gracefully)
+    console.warn('Supabase URL or Publishable Key not configured. Please check your .env.local file.');
+    supabaseClient = createClient(supabaseUrl || 'https://placeholder.supabase.co', supabasePublishableKey || 'placeholder-key', {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    });
+  }
+} else {
+  supabaseClient = createClient(supabaseUrl, supabasePublishableKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    },
+  });
 }
 
-export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-  },
-});
+export const supabase = supabaseClient;
 
 // Helper function to convert Supabase user to our User type
 export function mapSupabaseUser(supabaseUser: any): User | null {
