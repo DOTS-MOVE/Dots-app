@@ -15,6 +15,7 @@ import ConnectionMessageModal from '@/components/ConnectionMessageModal';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Buddy } from '@/types';
+import { uploadProfileImage } from '@/lib/storage';
 
 type Tab = 'posts' | 'events' | 'edit';
 
@@ -38,7 +39,11 @@ function ProfilePageContent() {
   const [showCreatePost, setShowCreatePost] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
+  const [photoFiles, setPhotoFiles] = useState<(File | null)[]>([]);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
   const [isDiscoverable, setIsDiscoverable] = useState<boolean>(false);
+  const [uploadingImages, setUploadingImages] = useState(false);
   const [buddyStatus, setBuddyStatus] = useState<'none' | 'pending' | 'accepted' | 'rejected' | 'loading'>('loading');
   const [showConnectionModal, setShowConnectionModal] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -309,17 +314,34 @@ function ProfilePageContent() {
   };
 
   const handleImageUpload = (type: 'avatar' | 'cover' | 'photo', file: File, index?: number) => {
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image size must be less than 5MB');
+      return;
+    }
+
+    // Create preview using FileReader
     const reader = new FileReader();
     reader.onloadend = () => {
       const result = reader.result as string;
       if (type === 'avatar') {
-        setFormData({ ...formData, avatar_url: result });
+        setAvatarFile(file);
+        setFormData({ ...formData, avatar_url: result }); // Preview URL
       } else if (type === 'cover') {
-        setFormData({ ...formData, cover_image_url: result });
+        setCoverFile(file);
+        setFormData({ ...formData, cover_image_url: result }); // Preview URL
       } else if (type === 'photo' && index !== undefined) {
         const newPhotos = [...photos];
-        newPhotos[index] = result;
+        const newPhotoFiles = [...photoFiles];
+        newPhotos[index] = result; // Preview URL
+        newPhotoFiles[index] = file;
         setPhotos(newPhotos);
+        setPhotoFiles(newPhotoFiles);
       }
     };
     reader.readAsDataURL(file);
@@ -328,11 +350,47 @@ function ProfilePageContent() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    setUploadingImages(true);
 
     try {
-      // Update basic profile info
+      const userId = currentUser?.id;
+      if (!userId) {
+        throw new Error('User not found');
+      }
+
+      // Upload images to Supabase Storage
+      let avatarUrl = formData.avatar_url;
+      let coverImageUrl = formData.cover_image_url;
+
+      if (avatarFile) {
+        try {
+          avatarUrl = await uploadProfileImage(avatarFile, 'avatar', userId);
+        } catch (error: any) {
+          console.error('Failed to upload avatar:', error);
+          alert(`Failed to upload avatar: ${error.message}`);
+          setUploadingImages(false);
+          setSaving(false);
+          return;
+        }
+      }
+
+      if (coverFile) {
+        try {
+          coverImageUrl = await uploadProfileImage(coverFile, 'cover', userId);
+        } catch (error: any) {
+          console.error('Failed to upload cover image:', error);
+          alert(`Failed to upload cover image: ${error.message}`);
+          setUploadingImages(false);
+          setSaving(false);
+          return;
+        }
+      }
+
+      // Update basic profile info with uploaded image URLs
       const updateData = {
         ...formData,
+        avatar_url: avatarUrl,
+        cover_image_url: coverImageUrl,
         age: formData.age ? parseInt(formData.age) : null,
         is_discoverable: isDiscoverable,
       };
@@ -348,16 +406,24 @@ function ProfilePageContent() {
           }
         }
       }
-      // Add new photos
-      for (let i = 0; i < photos.length; i++) {
-        if (photos[i]) {
+      
+      // Upload new photos to Supabase Storage
+      for (let i = 0; i < photoFiles.length; i++) {
+        if (photoFiles[i]) {
           try {
-            await api.addUserPhoto(photos[i], i);
-          } catch (error) {
+            const photoUrl = await uploadProfileImage(photoFiles[i]!, 'photo', userId);
+            await api.addUserPhoto(photoUrl, i);
+          } catch (error: any) {
             console.error(`Failed to upload photo ${i + 1}:`, error);
+            alert(`Failed to upload photo ${i + 1}: ${error.message}`);
           }
         }
       }
+
+      // Reset file states
+      setAvatarFile(null);
+      setCoverFile(null);
+      setPhotoFiles([]);
 
       await refreshUser();
       alert('Profile updated successfully!');
@@ -365,6 +431,7 @@ function ProfilePageContent() {
       alert(error.message || 'Failed to update profile');
     } finally {
       setSaving(false);
+      setUploadingImages(false);
     }
   };
 
@@ -807,16 +874,10 @@ function ProfilePageContent() {
                       accept="image/*"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
-                        if (file) {
-                          // Create a preview URL
-                          const reader = new FileReader();
-                          reader.onloadend = () => {
-                            setFormData({ ...formData, avatar_url: reader.result as string });
-                          };
-                          reader.readAsDataURL(file);
-                        }
+                        if (file) handleImageUpload('avatar', file);
                       }}
-                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#0ef9b4] file:text-black hover:file:bg-[#0dd9a0] file:cursor-pointer"
+                      disabled={saving || uploadingImages}
+                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#0ef9b4] file:text-black hover:file:bg-[#0dd9a0] file:cursor-pointer disabled:opacity-50"
                     />
                   </label>
                   <p className="mt-1 text-xs text-gray-500">Or enter a URL</p>
@@ -853,15 +914,10 @@ function ProfilePageContent() {
                       accept="image/*"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onloadend = () => {
-                            setFormData({ ...formData, cover_image_url: reader.result as string });
-                          };
-                          reader.readAsDataURL(file);
-                        }
+                        if (file) handleImageUpload('cover', file);
                       }}
-                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#0ef9b4] file:text-black hover:file:bg-[#0dd9a0] file:cursor-pointer"
+                      disabled={saving || uploadingImages}
+                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#0ef9b4] file:text-black hover:file:bg-[#0dd9a0] file:cursor-pointer disabled:opacity-50"
                     />
                   </label>
                   <p className="mt-1 text-xs text-gray-500">Or enter a URL (Recommended: 1200x400px landscape image)</p>
@@ -1050,10 +1106,10 @@ function ProfilePageContent() {
             <div className="flex justify-end">
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || uploadingImages}
                 className="px-6 py-3 bg-[#0ef9b4] text-black rounded-lg font-medium hover:bg-[#0dd9a0] transition-colors disabled:opacity-50"
               >
-                {saving ? 'Saving...' : 'Save Profile'}
+                {uploadingImages ? 'Uploading images...' : saving ? 'Saving...' : 'Save Profile'}
               </button>
             </div>
           </form>

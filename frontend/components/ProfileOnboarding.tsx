@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Sport, Goal, UserPhoto } from '@/types';
 import Image from 'next/image';
+import { uploadProfileImage } from '@/lib/storage';
 
 interface ProfileOnboardingProps {
   onComplete: () => void;
@@ -32,6 +33,9 @@ export default function ProfileOnboarding({ onComplete }: ProfileOnboardingProps
   });
   
   const [photos, setPhotos] = useState<string[]>([]);
+  const [photoFiles, setPhotoFiles] = useState<(File | null)[]>([]);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
   const [isDiscoverable, setIsDiscoverable] = useState<boolean | null>(null);
   const [showWarning, setShowWarning] = useState(false);
   const [warningMessage, setWarningMessage] = useState('');
@@ -84,17 +88,34 @@ export default function ProfileOnboarding({ onComplete }: ProfileOnboardingProps
   };
 
   const handleImageUpload = (type: 'avatar' | 'cover' | 'photo', file: File, index?: number) => {
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image size must be less than 5MB');
+      return;
+    }
+
+    // Create preview using FileReader
     const reader = new FileReader();
     reader.onloadend = () => {
       const result = reader.result as string;
       if (type === 'avatar') {
-        setFormData({ ...formData, avatar_url: result });
+        setAvatarFile(file);
+        setFormData({ ...formData, avatar_url: result }); // Preview URL
       } else if (type === 'cover') {
-        setFormData({ ...formData, cover_image_url: result });
+        setCoverFile(file);
+        setFormData({ ...formData, cover_image_url: result }); // Preview URL
       } else if (type === 'photo' && index !== undefined) {
         const newPhotos = [...photos];
-        newPhotos[index] = result;
+        const newPhotoFiles = [...photoFiles];
+        newPhotos[index] = result; // Preview URL
+        newPhotoFiles[index] = file;
         setPhotos(newPhotos);
+        setPhotoFiles(newPhotoFiles);
       }
     };
     reader.readAsDataURL(file);
@@ -188,22 +209,57 @@ export default function ProfileOnboarding({ onComplete }: ProfileOnboardingProps
     setLoading(true);
     try {
       console.log('Starting profile completion...', { isDiscoverable });
+      // Upload images to Supabase Storage if provided
+      const userId = user?.id;
+      if (!userId) {
+        throw new Error('User not found');
+      }
+
+      let avatarUrl = formData.avatar_url;
+      let coverImageUrl = formData.cover_image_url;
+
+      if (avatarFile) {
+        try {
+          avatarUrl = await uploadProfileImage(avatarFile, 'avatar', userId);
+          console.log('Avatar uploaded');
+        } catch (error: any) {
+          console.error('Failed to upload avatar:', error);
+          alert(`Failed to upload avatar: ${error.message}`);
+        }
+      }
+
+      if (coverFile) {
+        try {
+          coverImageUrl = await uploadProfileImage(coverFile, 'cover', userId);
+          console.log('Cover image uploaded');
+        } catch (error: any) {
+          console.error('Failed to upload cover image:', error);
+          alert(`Failed to upload cover image: ${error.message}`);
+        }
+      }
+
       // Update profile
       console.log('Updating user profile...');
       const updatedUser = await api.updateUser({
         ...formData,
+        avatar_url: avatarUrl,
+        cover_image_url: coverImageUrl,
         age: formData.age ? parseInt(formData.age) : null,
       });
       console.log('User updated:', updatedUser);
 
-      // Upload photos
-      console.log(`Uploading ${photos.length} photos...`);
-      for (let i = 0; i < photos.length; i++) {
-        try {
-          await api.addUserPhoto(photos[i], i);
-          console.log(`Photo ${i + 1} uploaded`);
-        } catch (error) {
-          console.error(`Failed to upload photo ${i + 1}:`, error);
+      // Upload photos to Supabase Storage
+      console.log(`Uploading ${photoFiles.length} photos...`);
+      for (let i = 0; i < photoFiles.length; i++) {
+        if (photoFiles[i]) {
+          try {
+            const photoUrl = await uploadProfileImage(photoFiles[i]!, 'photo', userId);
+            await api.addUserPhoto(photoUrl, i);
+            console.log(`Photo ${i + 1} uploaded`);
+          } catch (error: any) {
+            console.error(`Failed to upload photo ${i + 1}:`, error);
+            alert(`Failed to upload photo ${i + 1}: ${error.message}`);
+          }
         }
       }
 
