@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import { api } from '@/lib/api';
 import { Sport } from '@/types';
+import { uploadEventImage } from '@/lib/storage';
+import Image from 'next/image';
 
 export default function CreateEventPage() {
   const { user } = useAuth();
@@ -13,6 +15,9 @@ export default function CreateEventPage() {
   const [sports, setSports] = useState<Sport[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [coverImage, setCoverImage] = useState<File | null>(null);
+  const [coverImagePreview, setCoverImagePreview] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -38,16 +43,56 @@ export default function CreateEventPage() {
     }
   };
 
+  const handleCoverImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file');
+        return;
+      }
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size must be less than 5MB');
+        return;
+      }
+      setCoverImage(file);
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setCoverImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
 
     try {
+      let coverImageUrl: string | null = null;
+      
+      // Upload cover image if provided
+      if (coverImage) {
+        setUploadingImage(true);
+        try {
+          coverImageUrl = await uploadEventImage(coverImage);
+        } catch (uploadError: any) {
+          alert(`Failed to upload image: ${uploadError.message}`);
+          setUploadingImage(false);
+          setSaving(false);
+          return;
+        }
+        setUploadingImage(false);
+      }
+
       const eventData = {
         ...formData,
         sport_id: parseInt(formData.sport_id),
         max_participants: formData.max_participants ? parseInt(formData.max_participants) : null,
         end_time: formData.end_time || null,
+        cover_image_url: coverImageUrl,
       };
       const event = await api.createEvent(eventData);
       router.push(`/events/${event.id}`);
@@ -55,6 +100,7 @@ export default function CreateEventPage() {
       alert(error.message || 'Failed to create event');
     } finally {
       setSaving(false);
+      setUploadingImage(false);
     }
   };
 
@@ -157,6 +203,53 @@ export default function CreateEventPage() {
             />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Cover Image (optional)
+            </label>
+            {coverImagePreview ? (
+              <div className="mt-2 relative">
+                <div className="relative w-full h-64 rounded-lg overflow-hidden border border-gray-300">
+                  <Image
+                    src={coverImagePreview}
+                    alt="Cover preview"
+                    fill
+                    className="object-cover"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCoverImage(null);
+                    setCoverImagePreview(null);
+                  }}
+                  className="mt-2 text-sm text-red-600 hover:text-red-800"
+                >
+                  Remove image
+                </button>
+              </div>
+            ) : (
+              <label className="mt-1 flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                  <svg className="w-8 h-8 mb-2 text-gray-500" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 16">
+                    <path stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"/>
+                  </svg>
+                  <p className="mb-2 text-sm text-gray-500">
+                    <span className="font-semibold">Click to upload</span> or drag and drop
+                  </p>
+                  <p className="text-xs text-gray-500">PNG, JPG, GIF up to 5MB</p>
+                </div>
+                <input
+                  type="file"
+                  className="hidden"
+                  accept="image/*"
+                  onChange={handleCoverImageChange}
+                  disabled={saving || uploadingImage}
+                />
+              </label>
+            )}
+          </div>
+
           <div className="flex justify-end space-x-4">
             <button
               type="button"
@@ -167,10 +260,10 @@ export default function CreateEventPage() {
             </button>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || uploadingImage}
               className="px-6 py-3 bg-[#0ef9b4] text-black rounded-lg font-medium hover:bg-[#0dd9a0] transition-colors disabled:opacity-50"
             >
-              {saving ? 'Creating...' : 'Create Event'}
+              {uploadingImage ? 'Uploading image...' : saving ? 'Creating...' : 'Create Event'}
             </button>
           </div>
         </form>

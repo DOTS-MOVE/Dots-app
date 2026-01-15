@@ -46,16 +46,12 @@ async def create_event(
             detail="Sport not found"
         )
     
-    # Generate image URL for the event
-    event_seed = abs(hash(event_data.title + str(event_data.sport_id) + str(user_id))) % 100000
-    image_url = f"https://picsum.photos/seed/{event_seed + 20000}/800/600"
-    
     # Create event in Supabase
     event_dict = event_data.dict()
     event_dict['host_id'] = user_id
-    event_dict['image_url'] = image_url
     event_dict['is_cancelled'] = False
     event_dict['is_public'] = event_dict.get('is_public', True)
+    # cover_image_url is included in event_dict from event_data if provided
     
     try:
         event_result = supabase.table("events").insert(event_dict).execute()
