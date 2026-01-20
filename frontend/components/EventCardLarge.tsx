@@ -45,11 +45,11 @@ export default function EventCardLarge({ event }: EventCardLargeProps) {
     <Link href={`/events/${event.id}`}>
       <div className="group bg-white rounded-3xl overflow-hidden border border-gray-100 hover:shadow-2xl transition-all duration-300 hover:-translate-y-1.5">
         {/* Event Image/Header */}
-        <div className={`relative h-64 overflow-hidden ${event.image_url && !imageError ? '' : `bg-gradient-to-br ${sportStyle.gradient}`}`}>
-          {event.image_url && !imageError ? (
+        <div className={`relative h-64 overflow-hidden ${(event.image_url || event.cover_image_url) && !imageError ? '' : `bg-gradient-to-br ${sportStyle.gradient}`}`}>
+          {(event.image_url || event.cover_image_url) && !imageError ? (
             <>
               <img 
-                src={event.image_url} 
+                src={(event.image_url || event.cover_image_url) ?? undefined} 
                 alt={event.title}
                 className="w-full h-full object-cover"
                 onError={() => setImageError(true)}
@@ -101,16 +101,43 @@ export default function EventCardLarge({ event }: EventCardLargeProps) {
             </p>
           )}
 
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 text-sm text-gray-600">
-              <span className="text-base">📍</span>
-              <span className="truncate max-w-[200px]">{event.location}</span>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2 text-sm text-gray-600">
+                <span className="text-base">📍</span>
+                <span className="truncate max-w-[200px]">{event.location}</span>
+              </div>
+              
+              {event.sport && (
+                <span className="px-3 py-1.5 bg-[#E6F9F4] text-[#0dd9a0] rounded-full text-xs font-semibold">
+                  {event.sport.name}
+                </span>
+              )}
             </div>
-            
-            {event.sport && (
-              <span className="px-3 py-1.5 bg-[#E6F9F4] text-[#0dd9a0] rounded-full text-xs font-semibold">
-                {event.sport.name}
-              </span>
+
+            {/* Host Information */}
+            {event.host && (
+              <div className="flex items-center space-x-3 pt-4 border-t border-gray-100">
+                <div className="w-10 h-10 rounded-full bg-[#0ef9b4] flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  {event.host.avatar_url ? (
+                    <img
+                      src={event.host.avatar_url}
+                      alt={event.host.full_name || 'Host'}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-black font-semibold text-sm">
+                      {event.host.full_name?.charAt(0).toUpperCase() || 'H'}
+                    </span>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-gray-500 uppercase tracking-wide mb-0.5">Hosted by</p>
+                  <p className="text-sm font-semibold text-gray-900 truncate">
+                    {event.host.full_name || 'Unknown'}
+                  </p>
+                </div>
+              </div>
             )}
           </div>
         </div>

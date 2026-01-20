@@ -62,12 +62,8 @@ async def get_suggested_buddies(
     except Exception:
         current_user["goals"] = []
     
-    # Get all potential buddies using the service
-    all_buddies = find_potential_buddies(current_user, supabase, limit=None, min_score=min_score)
-    
-    # If we don't have enough buddies, lower the threshold
-    if len(all_buddies) < offset + limit:
-        all_buddies = find_potential_buddies(current_user, supabase, limit=None, min_score=10.0)
+    # Get all potential buddies using the service (no score filtering - show all discoverable users)
+    all_buddies = find_potential_buddies(current_user, supabase, limit=None, min_score=0.0)
     
     # Apply offset and limit for pagination
     paginated_buddies = all_buddies[offset:offset + limit]

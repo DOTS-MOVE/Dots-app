@@ -121,10 +121,10 @@ export default function EventDetailPage() {
       
       {/* Hero Image Section */}
       <div className="relative w-full h-96 md:h-[500px] overflow-hidden">
-        {event.image_url ? (
+        {event.image_url || event.cover_image_url ? (
           <>
             <img 
-              src={event.image_url} 
+              src={(event.image_url || event.cover_image_url) ?? undefined} 
               alt={event.title}
               className="w-full h-full object-cover"
             />

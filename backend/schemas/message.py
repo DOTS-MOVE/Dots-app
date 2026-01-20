@@ -5,6 +5,7 @@ from datetime import datetime
 
 class MessageBase(BaseModel):
     content: str
+    image_url: Optional[str] = None
 
 
 class MessageCreate(MessageBase):

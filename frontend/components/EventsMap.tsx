@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { Event } from '@/types';
@@ -107,6 +107,7 @@ function MapCenter({ center }: { center: [number, number] }) {
 export default function EventsMap({ events, userLocation }: EventsMapProps) {
   const [mounted, setMounted] = useState(false);
   const [eventLocations, setEventLocations] = useState<Array<{ event: Event; lat: number; lng: number }>>([]);
+  const mapIdRef = useRef(`map-${Date.now()}-${Math.random()}`);
 
   useEffect(() => {
     setMounted(true);
@@ -156,6 +157,7 @@ export default function EventsMap({ events, userLocation }: EventsMapProps) {
   return (
     <div className="w-full h-[600px] rounded-3xl overflow-hidden shadow-lg border border-gray-200">
       <MapContainer
+        key={mapIdRef.current}
         center={center}
         zoom={12}
         style={{ height: '100%', width: '100%' }}

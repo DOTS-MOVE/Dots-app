@@ -122,11 +122,11 @@ def find_potential_buddies(
     user: dict,
     supabase: Client,
     limit: int = None,
-    min_score: float = 30.0
+    min_score: float = 0.0  # No minimum score - show all users
 ) -> List[dict]:
     """
     Find potential buddies for a user using Supabase
-    Returns all buddies sorted by score, limit can be applied by caller
+    Returns all discoverable users (regardless of score), sorted by score, limit can be applied by caller
     """
     user_id = user.get("id")
     if not user_id:
@@ -187,17 +187,16 @@ def find_potential_buddies(
         except Exception:
             potential_user["goals"] = []
     
-    # Calculate scores and filter
+    # Calculate scores for all users (no filtering by score)
     buddies = []
     for potential_user in potential_users:
         score = calculate_buddy_score(user, potential_user, supabase)
-        if score >= min_score:
-            buddies.append({
-                "user": potential_user,
-                "score": score
-            })
+        buddies.append({
+            "user": potential_user,
+            "score": score
+        })
     
-    # Sort by score descending
+    # Sort by score descending (for display purposes, but all are shown)
     buddies.sort(key=lambda x: x["score"], reverse=True)
     
     # Apply limit if provided

@@ -29,14 +29,6 @@ function BuddiesPageContent() {
   const [pendingConnection, setPendingConnection] = useState<{ userId: number; userName: string; sports?: Array<{ name: string; icon?: string }> } | null>(null);
 
   useEffect(() => {
-    // Check if user is discoverable
-    if (user && !user.is_discoverable && activeTab === 'discover') {
-      // Redirect to pending/buddies tab if not discoverable
-      setActiveTab('buddies');
-      router.push('/buddies?tab=buddies');
-      return;
-    }
-
     // Check URL params for tab
     const tab = searchParams?.get('tab');
     if (tab === 'pending') {
@@ -47,7 +39,8 @@ function BuddiesPageContent() {
       setActiveTab('discover');
     }
     
-    if (user?.is_discoverable || activeTab !== 'discover') {
+    // Always load data when user or tab changes
+    if (user) {
       loadData(true); // Reset on initial load
     }
   }, [user, searchParams]);
@@ -56,9 +49,15 @@ function BuddiesPageContent() {
     try {
       const promises = [api.getBuddies()];
       
-      // Only load suggested if user is discoverable and on discover tab
-      if (user?.is_discoverable && activeTab === 'discover') {
-        promises.push(api.getSuggestedBuddies(10, 20, reset ? 0 : suggested.length));
+      // Always try to load suggested if on discover tab (regardless of user's discoverability)
+      // This shows all discoverable users
+      if (activeTab === 'discover') {
+        try {
+          promises.push(api.getSuggestedBuddies(10, 0, reset ? 0 : suggested.length));
+        } catch (error) {
+          // If user is not discoverable, still try to load others who are
+          promises.push(Promise.resolve([]));
+        }
       } else {
         promises.push(Promise.resolve([]));
       }
@@ -77,7 +76,7 @@ function BuddiesPageContent() {
     } catch (error: any) {
       console.error('Failed to load buddies:', error);
       if (error.message?.includes('discovery')) {
-        // User is not discoverable
+        // User is not discoverable, but we can still show discoverable users
         setSuggested([]);
         setHasMore(false);
       } else {
@@ -276,39 +275,20 @@ function BuddiesPageContent() {
       {/* Discover Tab */}
       {activeTab === 'discover' && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          {!user?.is_discoverable ? (
-            <div className="text-center py-16 bg-white rounded-3xl shadow-lg">
-              <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center">
-                <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-              </div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">Discovery Disabled</h3>
-              <p className="text-gray-600 mb-6">
-                You need to enable discovery to find and be found by other users.
-              </p>
-              <Link
-                href="/profile"
-                className="inline-block bg-[#0ef9b4] text-black px-6 py-3 rounded-xl font-semibold hover:bg-[#0dd9a0] transition-colors"
-              >
-                Update Profile Settings
-              </Link>
-            </div>
-          ) : loading ? (
+          {loading ? (
             <div className="text-center py-16 bg-white rounded-3xl shadow-lg">
               <div className="text-gray-600">Loading buddies...</div>
             </div>
           ) : suggested.length === 0 ? (
             <div className="text-center py-16 bg-white rounded-3xl shadow-lg">
-                <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-gray-400 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                </div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">Loading more buddies...</h3>
+              <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center">
+                <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">No buddies available</h3>
               <p className="text-gray-600 mb-6">
-                We're finding great buddies for you!
+                There are no discoverable users available right now. Check back later!
               </p>
             </div>
           ) : (
@@ -388,16 +368,176 @@ function BuddiesPageContent() {
         </div>
       )}
 
-      {/* My Buddies Tab */}
+      {/* Pending Tab */}
+      {activeTab === 'pending' && (
+        <div className="max-w-4xl mx-auto px-4 py-6">
+          {/* Incoming Requests (people who want to connect with you) */}
+          {buddies.filter(m => m.status === 'pending' && m.user2_id === user?.id).length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-xl font-bold text-gray-900 mb-4">Pending Requests</h2>
+              <div className="space-y-3">
+                {buddies
+                  .filter(m => m.status === 'pending' && m.user2_id === user?.id)
+                  .map((buddy) => {
+                    const otherUser = buddy.user1;
+                    return (
+                      <div key={buddy.id} className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4 flex-1">
+                            <Link href={`/profile?userId=${otherUser?.id}`} className="flex items-center space-x-4 flex-1">
+                              <div className="w-16 h-16 bg-gradient-to-br from-[#0ef9b4] to-[#0dd9a0] rounded-full flex items-center justify-center text-white font-bold text-xl overflow-hidden flex-shrink-0">
+                                {otherUser?.avatar_url ? (
+                                  <img src={otherUser.avatar_url} alt={otherUser.full_name || ''} className="w-16 h-16 rounded-full object-cover" />
+                                ) : (
+                                  <span>{otherUser?.full_name?.[0] || 'U'}</span>
+                                )}
+                              </div>
+                              <div className="flex-1">
+                                <p className="font-bold text-gray-900 text-lg">{otherUser?.full_name || 'Anonymous'}</p>
+                                <p className="text-sm text-gray-600">
+                                  {buddy.match_score && `${Math.round(buddy.match_score)}% buddy`}
+                                </p>
+                              </div>
+                            </Link>
+                          </div>
+                          <div className="flex space-x-3">
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await api.updateBuddy(buddy.id, 'accepted');
+                                  await loadData();
+                                } catch (error: any) {
+                                  alert(error.message || 'Failed to accept buddy');
+                                }
+                              }}
+                              className="px-6 py-2 bg-[#0ef9b4] text-black rounded-xl font-semibold hover:bg-[#0dd9a0] transition-colors"
+                            >
+                              Accept
+                            </button>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await api.updateBuddy(buddy.id, 'rejected');
+                                  await loadData();
+                                } catch (error: any) {
+                                  alert(error.message || 'Failed to reject buddy');
+                                }
+                              }}
+                              className="px-6 py-2 bg-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-300 transition-colors"
+                            >
+                              Decline
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
+          {/* Outgoing Requests (people you liked) */}
+          {buddies.filter(m => m.status === 'pending' && m.user1_id === user?.id).length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-xl font-bold text-gray-900 mb-4">People You Liked</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {buddies
+                  .filter(m => m.status === 'pending' && m.user1_id === user?.id)
+                  .map((buddy) => {
+                    const otherUser = buddy.user2;
+                    return (
+                      <div key={buddy.id} className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100 relative">
+                        <button
+                          onClick={async () => {
+                            if (confirm('Cancel this buddy request?')) {
+                              try {
+                                await api.deleteBuddy(buddy.id);
+                                await loadData();
+                              } catch (error: any) {
+                                alert(error.message || 'Failed to cancel request');
+                              }
+                            }
+                          }}
+                          className="absolute top-4 right-4 w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center text-gray-600 hover:text-gray-800 transition-colors z-10"
+                          aria-label="Cancel request"
+                        >
+                          <span className="text-lg">×</span>
+                        </button>
+                        <Link
+                          href={`/profile?userId=${otherUser?.id}`}
+                          className="block cursor-pointer"
+                        >
+                          <div className="flex items-center space-x-4 pr-16">
+                            <div className="w-16 h-16 bg-gradient-to-br from-[#0ef9b4] to-[#0dd9a0] rounded-full flex items-center justify-center text-white font-bold text-xl overflow-hidden flex-shrink-0">
+                              {otherUser?.avatar_url ? (
+                                <img src={otherUser.avatar_url} alt={otherUser.full_name || ''} className="w-16 h-16 rounded-full object-cover" />
+                              ) : (
+                                <span>{otherUser?.full_name?.[0] || 'U'}</span>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-gray-900 text-lg truncate">{otherUser?.full_name || 'Anonymous'}</p>
+                              <p className="text-sm text-gray-600 truncate">
+                                {otherUser?.location && `${otherUser.location}`}
+                              </p>
+                              {otherUser?.sports && otherUser.sports.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {otherUser.sports.slice(0, 2).map((sport: any) => (
+                                    <span key={sport.id} className="text-xs bg-[#E6F9F4] text-[#0dd9a0] px-2 py-0.5 rounded-full">
+                                      {sport.name}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="mt-4 pt-4 border-t border-gray-100">
+                            <p className="text-xs text-gray-500">Waiting for response...</p>
+                          </div>
+                        </Link>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
+          {/* Empty State for Pending */}
+          {buddies.filter(m => m.status === 'pending').length === 0 && (
+            <div className="text-center py-16 bg-white rounded-3xl shadow-lg">
+              <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center">
+                <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">No pending requests</h3>
+              <p className="text-gray-600 mb-6">
+                You don't have any pending buddy requests right now.
+              </p>
+              <button
+                onClick={() => {
+                  setActiveTab('discover');
+                  router.push('/buddies');
+                }}
+                className="inline-block bg-[#0ef9b4] text-black px-6 py-3 rounded-xl font-semibold hover:bg-[#0dd9a0] transition-all duration-300 shadow-md hover:shadow-lg"
+              >
+                Start Discovering
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* My Buddies Tab - Only Accepted Buddies */}
       {activeTab === 'buddies' && (
         <div className="max-w-4xl mx-auto px-4 py-6">
-          {buddies.length === 0 ? (
+          {buddies.filter(m => m.status === 'accepted').length === 0 ? (
             <div className="text-center py-16 bg-white rounded-3xl shadow-lg">
-                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center">
-                    <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                  </div>
+              <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center">
+                <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              </div>
               <h3 className="text-2xl font-bold text-gray-900 mb-2">No buddies yet</h3>
               <p className="text-gray-600 mb-6">
                 Start swiping to find your workout buddies!
@@ -413,209 +553,75 @@ function BuddiesPageContent() {
               </button>
             </div>
           ) : (
-            <div className="space-y-4">
-              {/* Pending Buddies (incoming requests) */}
-              {buddies.filter(m => m.status === 'pending' && m.user2_id === user?.id).length > 0 && (
-                <div className="mb-8">
-                  <h2 className="text-xl font-bold text-gray-900 mb-4">Pending Requests</h2>
-                  <div className="space-y-3">
-                    {buddies
-                      .filter(m => m.status === 'pending' && m.user2_id === user?.id)
-                      .map((buddy) => {
-                        const otherUser = buddy.user1;
-                        return (
-                          <div key={buddy.id} className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center space-x-4 flex-1">
-                                <div className="w-16 h-16 bg-gradient-to-br from-[#0ef9b4] to-[#0dd9a0] rounded-full flex items-center justify-center text-white font-bold text-xl">
-                                  {otherUser?.avatar_url ? (
-                                    <img src={otherUser.avatar_url} alt={otherUser.full_name || ''} className="w-16 h-16 rounded-full object-cover" />
-                                  ) : (
-                                    <span>{otherUser?.full_name?.[0] || 'U'}</span>
-                                  )}
+            <div>
+              <h2 className="text-xl font-bold text-gray-900 mb-4">Your Buddies</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {buddies
+                  .filter(m => m.status === 'accepted')
+                  .map((buddy) => {
+                    const otherUser = buddy.user1_id === user?.id ? buddy.user2 : buddy.user1;
+                    return (
+                      <div key={buddy.id} className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100 relative">
+                        <button
+                          onClick={async () => {
+                            if (confirm('Remove this buddy?')) {
+                              try {
+                                await api.deleteBuddy(buddy.id);
+                                await loadData();
+                              } catch (error: any) {
+                                alert(error.message || 'Failed to remove buddy');
+                              }
+                            }
+                          }}
+                          className="absolute top-4 right-4 w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center text-gray-600 hover:text-gray-800 transition-colors z-10"
+                          aria-label="Remove buddy"
+                        >
+                          <span className="text-lg">×</span>
+                        </button>
+                        <Link
+                          href={`/profile?userId=${otherUser?.id}`}
+                          className="block cursor-pointer"
+                        >
+                          <div className="flex items-center space-x-4 pr-16">
+                            <div className="w-16 h-16 bg-gradient-to-br from-[#0ef9b4] to-[#0dd9a0] rounded-full flex items-center justify-center text-white font-bold text-xl overflow-hidden flex-shrink-0">
+                              {otherUser?.avatar_url ? (
+                                <img src={otherUser.avatar_url} alt={otherUser.full_name || ''} className="w-16 h-16 rounded-full object-cover" />
+                              ) : (
+                                <span>{otherUser?.full_name?.[0] || 'U'}</span>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-bold text-gray-900 text-lg truncate">{otherUser?.full_name || 'Anonymous'}</p>
+                              <p className="text-sm text-gray-600 truncate">
+                                {buddy.match_score && `${Math.round(buddy.match_score)}% buddy`}
+                                {otherUser?.location && ` • ${otherUser.location}`}
+                              </p>
+                              {otherUser?.sports && otherUser.sports.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {otherUser.sports.slice(0, 2).map((sport: any) => (
+                                    <span key={sport.id} className="text-xs bg-[#E6F9F4] text-[#0dd9a0] px-2 py-0.5 rounded-full">
+                                      {sport.name}
+                                    </span>
+                                  ))}
                                 </div>
-                                <div className="flex-1">
-                                  <p className="font-bold text-gray-900 text-lg">{otherUser?.full_name || 'Anonymous'}</p>
-                                  <p className="text-sm text-gray-600">
-                                    {buddy.match_score && `${Math.round(buddy.match_score)}% buddy`}
-                                  </p>
-                                </div>
-                              </div>
-                              <div className="flex space-x-3">
-                                <button
-                                  onClick={async () => {
-                                    try {
-                                      await api.updateBuddy(buddy.id, 'accepted');
-                                      await loadData();
-                                    } catch (error: any) {
-                                      alert(error.message || 'Failed to accept buddy');
-                                    }
-                                  }}
-                                  className="px-6 py-2 bg-[#0ef9b4] text-black rounded-xl font-semibold hover:bg-[#0dd9a0] transition-colors"
-                                >
-                                  Accept
-                                </button>
-                                <button
-                                  onClick={async () => {
-                                    try {
-                                      await api.updateBuddy(buddy.id, 'rejected');
-                                      await loadData();
-                                    } catch (error: any) {
-                                      alert(error.message || 'Failed to reject buddy');
-                                    }
-                                  }}
-                                  className="px-6 py-2 bg-gray-200 text-gray-700 rounded-xl font-semibold hover:bg-gray-300 transition-colors"
-                                >
-                                  Decline
-                                </button>
-                              </div>
+                              )}
                             </div>
                           </div>
-                        );
-                      })}
-                  </div>
-                </div>
-              )}
-
-              {/* Pending Buddies (outgoing likes - people you liked) */}
-              {buddies.filter(m => m.status === 'pending' && m.user1_id === user?.id).length > 0 && (
-                <div className="mb-8">
-                  <h2 className="text-xl font-bold text-gray-900 mb-4">People You Liked</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {buddies
-                      .filter(m => m.status === 'pending' && m.user1_id === user?.id)
-                      .map((buddy) => {
-                        const otherUser = buddy.user2;
-                        return (
-                          <div key={buddy.id} className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100 relative">
-                            <button
-                              onClick={async () => {
-                                if (confirm('Cancel this buddy request?')) {
-                                  try {
-                                    await api.deleteBuddy(buddy.id);
-                                    await loadData();
-                                  } catch (error: any) {
-                                    alert(error.message || 'Failed to cancel request');
-                                  }
-                                }
-                              }}
-                              className="absolute top-4 right-4 w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center text-gray-600 hover:text-gray-800 transition-colors z-10"
-                              aria-label="Cancel request"
-                            >
-                              <span className="text-lg">×</span>
-                            </button>
-                            <Link
-                              href={`/profile?userId=${otherUser?.id}`}
-                              className="block cursor-pointer"
-                            >
-                              <div className="flex items-center space-x-4 pr-16">
-                                <div className="w-16 h-16 bg-gradient-to-br from-[#0ef9b4] to-[#0dd9a0] rounded-full flex items-center justify-center text-white font-bold text-xl overflow-hidden flex-shrink-0">
-                                  {otherUser?.avatar_url ? (
-                                    <img src={otherUser.avatar_url} alt={otherUser.full_name || ''} className="w-16 h-16 rounded-full object-cover" />
-                                  ) : (
-                                    <span>{otherUser?.full_name?.[0] || 'U'}</span>
-                                  )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-bold text-gray-900 text-lg truncate">{otherUser?.full_name || 'Anonymous'}</p>
-                                  <p className="text-sm text-gray-600 truncate">
-                                    {otherUser?.location && `${otherUser.location}`}
-                                  </p>
-                                  {otherUser?.sports && otherUser.sports.length > 0 && (
-                                    <div className="flex flex-wrap gap-1 mt-2">
-                                      {otherUser.sports.slice(0, 2).map((sport: any) => (
-                                        <span key={sport.id} className="text-xs bg-[#E6F9F4] text-[#0dd9a0] px-2 py-0.5 rounded-full">
-                                          {sport.name}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="mt-4 pt-4 border-t border-gray-100">
-                                <p className="text-xs text-gray-500">Waiting for response...</p>
-                              </div>
-                            </Link>
-                          </div>
-                        );
-                      })}
-                  </div>
-                </div>
-              )}
-
-              {/* Accepted Buddies */}
-              {buddies.filter(m => m.status === 'accepted').length > 0 && (
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900 mb-4">Your Buddies</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {buddies
-                      .filter(m => m.status === 'accepted')
-                      .map((buddy) => {
-                        const otherUser = buddy.user1_id === user?.id ? buddy.user2 : buddy.user1;
-                        return (
-                          <div key={buddy.id} className="bg-white rounded-2xl p-6 shadow-lg border border-gray-100 relative">
-                            <button
-                              onClick={async () => {
-                                if (confirm('Remove this buddy?')) {
-                                  try {
-                                    await api.deleteBuddy(buddy.id);
-                                    await loadData();
-                                  } catch (error: any) {
-                                    alert(error.message || 'Failed to remove buddy');
-                                  }
-                                }
-                              }}
-                              className="absolute top-4 right-4 w-8 h-8 bg-gray-100 hover:bg-gray-200 rounded-full flex items-center justify-center text-gray-600 hover:text-gray-800 transition-colors z-10"
-                              aria-label="Remove buddy"
-                            >
-                              <span className="text-lg">×</span>
-                            </button>
-                            <Link
-                              href={`/profile?userId=${otherUser?.id}`}
-                              className="block cursor-pointer"
-                            >
-                              <div className="flex items-center space-x-4 pr-16">
-                                <div className="w-16 h-16 bg-gradient-to-br from-[#0ef9b4] to-[#0dd9a0] rounded-full flex items-center justify-center text-white font-bold text-xl overflow-hidden flex-shrink-0">
-                                  {otherUser?.avatar_url ? (
-                                    <img src={otherUser.avatar_url} alt={otherUser.full_name || ''} className="w-16 h-16 rounded-full object-cover" />
-                                  ) : (
-                                    <span>{otherUser?.full_name?.[0] || 'U'}</span>
-                                  )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-bold text-gray-900 text-lg truncate">{otherUser?.full_name || 'Anonymous'}</p>
-                                  <p className="text-sm text-gray-600 truncate">
-                                    {buddy.match_score && `${Math.round(buddy.match_score)}% buddy`}
-                                    {otherUser?.location && ` • ${otherUser.location}`}
-                                  </p>
-                                  {otherUser?.sports && otherUser.sports.length > 0 && (
-                                    <div className="flex flex-wrap gap-1 mt-2">
-                                      {otherUser.sports.slice(0, 2).map((sport: any) => (
-                                        <span key={sport.id} className="text-xs bg-[#E6F9F4] text-[#0dd9a0] px-2 py-0.5 rounded-full">
-                                          {sport.name}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </Link>
-                            <Link
-                              href={`/messages?user=${otherUser?.id}`}
-                              className="absolute bottom-4 right-4 w-10 h-10 bg-[#0ef9b4] hover:bg-[#0dd9a0] rounded-full flex items-center justify-center text-black transition-colors shadow-md hover:shadow-lg z-10"
-                              aria-label="Message"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                              </svg>
-                            </Link>
-                          </div>
-                        );
-                      })}
-                  </div>
-                </div>
-              )}
+                        </Link>
+                        <Link
+                          href={`/messages?user=${otherUser?.id}`}
+                          className="absolute bottom-4 right-4 w-10 h-10 bg-[#0ef9b4] hover:bg-[#0dd9a0] rounded-full flex items-center justify-center text-black transition-colors shadow-md hover:shadow-lg z-10"
+                          aria-label="Message"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                          </svg>
+                        </Link>
+                      </div>
+                    );
+                  })}
+              </div>
             </div>
           )}
         </div>

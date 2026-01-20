@@ -41,6 +41,14 @@ export default function Home() {
     filterEvents();
   }, [searchQuery, selectedSport, allEvents]);
 
+  useEffect(() => {
+    if (searchQuery.trim() && (searchMode === 'all' || searchMode === 'people')) {
+      searchPeople();
+    } else {
+      setPeople([]);
+    }
+  }, [searchQuery, searchMode]);
+
   const loadData = async () => {
     try {
       const [eventsData, sportsData] = await Promise.all([
@@ -170,8 +178,8 @@ export default function Home() {
     );
   }
 
-  // Check if profile is incomplete - only show if missing essential fields
-  const profileIncomplete = !user?.full_name || !user?.location || !user?.sports || user.sports.length === 0 || !user?.goals || user.goals.length === 0;
+  // Check if profile is incomplete - only show if user is authenticated and missing essential fields
+  const profileIncomplete = user && (!user.full_name || !user.location || !user.sports || user.sports.length === 0 || !user.goals || user.goals.length === 0);
 
   // Get featured events (first 3)
   const featuredEvents = events.slice(0, 3);
@@ -273,7 +281,7 @@ export default function Home() {
               {people.map((person) => (
                 <Link
                   key={person.id}
-                  href={`/buddies?user=${person.id}`}
+                  href={`/profile?userId=${person.id}`}
                   className="bg-white rounded-xl p-4 shadow-md border border-gray-200 hover:shadow-lg transition-all duration-300 hover:scale-[1.02]"
                 >
                   <div className="flex items-center gap-3">

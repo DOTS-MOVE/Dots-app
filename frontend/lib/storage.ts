@@ -26,6 +26,26 @@ export async function uploadImage(
     // Construct the file path
     const filePath = folder ? `${folder}/${finalFileName}` : finalFileName;
     
+    // Log upload attempt details
+    console.log(`[Storage Upload] Attempting to upload image:`, {
+      fileName: file.name,
+      fileSize: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+      fileType: file.type,
+      bucket,
+      folder,
+      filePath,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Check if user is authenticated
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      const errorMsg = 'User not authenticated. Please log in to upload images.';
+      console.error(`[Storage Upload Error] ${errorMsg}`);
+      throw new Error(errorMsg);
+    }
+    console.log(`[Storage Upload] User authenticated: ${session.user.email}`);
+    
     // Upload the file
     const { data, error } = await supabase.storage
       .from(bucket)
@@ -35,8 +55,47 @@ export async function uploadImage(
       });
     
     if (error) {
-      throw new Error(`Failed to upload image: ${error.message}`);
+      // Provide detailed error information
+      let errorDetails = `Failed to upload image to bucket "${bucket}"`;
+      if (folder) {
+        errorDetails += ` in folder "${folder}"`;
+      }
+      errorDetails += `\n\nFile Details:`;
+      errorDetails += `\n  - Name: ${file.name}`;
+      errorDetails += `\n  - Size: ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+      errorDetails += `\n  - Type: ${file.type}`;
+      errorDetails += `\n  - Target Path: ${filePath}`;
+      errorDetails += `\n\nError: ${error.message}`;
+      
+      // Provide specific guidance based on error type
+      if (error.message.includes('row-level security') || error.message.includes('RLS')) {
+        errorDetails += `\n\n🔧 Fix: This is a Row-Level Security (RLS) policy error.`;
+        errorDetails += `\n   1. Go to your Supabase Dashboard → SQL Editor`;
+        errorDetails += `\n   2. Run the script: backend/setup_storage.sql`;
+        errorDetails += `\n   3. This will create the bucket and set up RLS policies`;
+        errorDetails += `\n   4. See backend/STORAGE_SETUP.md for detailed instructions`;
+      } else if (error.message.includes('Bucket not found') || error.message.includes('does not exist')) {
+        errorDetails += `\n\n🔧 Fix: The storage bucket "${bucket}" doesn't exist.`;
+        errorDetails += `\n   1. Go to Supabase Dashboard → Storage → Buckets`;
+        errorDetails += `\n   2. Create a new bucket named "${bucket}"`;
+        errorDetails += `\n   3. Make it public and set up RLS policies`;
+        errorDetails += `\n   4. Or run: backend/setup_storage.sql`;
+      } else if (error.message.includes('permission') || error.message.includes('unauthorized')) {
+        errorDetails += `\n\n🔧 Fix: Permission denied.`;
+        errorDetails += `\n   1. Make sure you're logged in`;
+        errorDetails += `\n   2. Check that RLS policies allow authenticated users to upload`;
+        errorDetails += `\n   3. Run: backend/setup_storage.sql to set up policies`;
+      } else if (error.message.includes('size') || error.message.includes('too large')) {
+        errorDetails += `\n\n🔧 Fix: File is too large.`;
+        errorDetails += `\n   - Maximum file size: 5MB`;
+        errorDetails += `\n   - Your file size: ${(file.size / 1024 / 1024).toFixed(2)} MB`;
+      }
+      
+      console.error(`[Storage Upload Error] ${errorDetails}`);
+      throw new Error(errorDetails);
     }
+    
+    console.log(`[Storage Upload] Successfully uploaded to: ${filePath}`);
     
     // Get the public URL
     const { data: urlData } = supabase.storage
@@ -44,13 +103,29 @@ export async function uploadImage(
       .getPublicUrl(filePath);
     
     if (!urlData?.publicUrl) {
-      throw new Error('Failed to get image URL');
+      const errorMsg = `Failed to get public URL for uploaded image at path: ${filePath}`;
+      console.error(`[Storage Upload Error] ${errorMsg}`);
+      throw new Error(errorMsg);
     }
     
+    console.log(`[Storage Upload] Public URL: ${urlData.publicUrl}`);
     return urlData.publicUrl;
   } catch (error: any) {
-    console.error('Image upload error:', error);
-    throw new Error(error.message || 'Failed to upload image');
+    // If error is already a detailed Error object, re-throw it
+    if (error.message && error.message.includes('\n')) {
+      throw error;
+    }
+    
+    // Otherwise, create a detailed error message
+    const errorDetails = `Image upload failed:\n\n` +
+      `File: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB, ${file.type})\n` +
+      `Bucket: ${bucket}\n` +
+      `Path: ${folder ? `${folder}/` : ''}${fileName || file.name}\n` +
+      `Error: ${error.message || 'Unknown error'}\n\n` +
+      `Check the browser console for more details.`;
+    
+    console.error(`[Storage Upload Error] ${errorDetails}`, error);
+    throw new Error(errorDetails);
   }
 }
 
@@ -94,16 +169,40 @@ export async function deleteImage(
   bucket: string = 'images'
 ): Promise<void> {
   try {
+    console.log(`[Storage Delete] Attempting to delete image:`, {
+      bucket,
+      filePath,
+      timestamp: new Date().toISOString()
+    });
+    
     const { error } = await supabase.storage
       .from(bucket)
       .remove([filePath]);
     
     if (error) {
-      throw new Error(`Failed to delete image: ${error.message}`);
+      let errorDetails = `Failed to delete image from bucket "${bucket}":\n\n` +
+        `Path: ${filePath}\n` +
+        `Error: ${error.message}\n\n`;
+      
+      if (error.message.includes('row-level security') || error.message.includes('RLS')) {
+        errorDetails += `🔧 Fix: RLS policy error. Check that policies allow deletion.\n`;
+      } else if (error.message.includes('not found')) {
+        errorDetails += `🔧 Fix: File may have already been deleted.\n`;
+      }
+      
+      console.error(`[Storage Delete Error] ${errorDetails}`);
+      throw new Error(errorDetails);
     }
+    
+    console.log(`[Storage Delete] Successfully deleted: ${filePath}`);
   } catch (error: any) {
-    console.error('Image deletion error:', error);
-    throw new Error(error.message || 'Failed to delete image');
+    const errorDetails = `Image deletion failed:\n\n` +
+      `Bucket: ${bucket}\n` +
+      `Path: ${filePath}\n` +
+      `Error: ${error.message || 'Unknown error'}\n`;
+    
+    console.error(`[Storage Delete Error] ${errorDetails}`, error);
+    throw new Error(errorDetails);
   }
 }
 

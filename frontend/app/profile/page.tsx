@@ -347,6 +347,87 @@ function ProfilePageContent() {
     reader.readAsDataURL(file);
   };
 
+  const handleMultiplePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const currentPhotoCount = photos.filter(Boolean).length;
+    const maxPhotos = 4;
+    const remainingSlots = maxPhotos - currentPhotoCount;
+
+    if (files.length > remainingSlots) {
+      alert(`You can only add ${remainingSlots} more photo${remainingSlots === 1 ? '' : 's'}. You already have ${currentPhotoCount} photo${currentPhotoCount === 1 ? '' : 's'}.`);
+      e.target.value = '';
+      return;
+    }
+
+    // Validate all files
+    const validFiles: File[] = [];
+    const invalidFiles: string[] = [];
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file.type.startsWith('image/')) {
+        invalidFiles.push(`${file.name} (not an image)`);
+        continue;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        invalidFiles.push(`${file.name} (larger than 5MB)`);
+        continue;
+      }
+      validFiles.push(file);
+    }
+
+    if (invalidFiles.length > 0) {
+      alert(`Some files were skipped:\n${invalidFiles.join('\n')}`);
+    }
+
+    if (validFiles.length === 0) {
+      e.target.value = '';
+      return;
+    }
+
+    // Find available slots
+    const newPhotos = [...photos];
+    const newPhotoFiles = [...photoFiles];
+    const availableSlots: number[] = [];
+    
+    for (let i = 0; i < maxPhotos; i++) {
+      if (!newPhotos[i]) {
+        availableSlots.push(i);
+      }
+    }
+
+    // Process files and fill available slots
+    const fileReaders: Promise<void>[] = [];
+    
+    for (let i = 0; i < Math.min(validFiles.length, availableSlots.length); i++) {
+      const file = validFiles[i];
+      const slotIndex = availableSlots[i];
+      
+      const readerPromise = new Promise<void>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          newPhotos[slotIndex] = reader.result as string;
+          newPhotoFiles[slotIndex] = file;
+          resolve();
+        };
+        reader.readAsDataURL(file);
+      });
+      
+      fileReaders.push(readerPromise);
+    }
+
+    // Update state once all files are processed
+    Promise.all(fileReaders).then(() => {
+      setPhotos([...newPhotos]);
+      setPhotoFiles([...newPhotoFiles]);
+    });
+
+    // Reset input so same files can be selected again if needed
+    e.target.value = '';
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -364,9 +445,18 @@ function ProfilePageContent() {
 
       if (avatarFile) {
         try {
+          console.log(`[Profile Update] Uploading avatar for user ${userId}...`);
           avatarUrl = await uploadProfileImage(avatarFile, 'avatar', userId);
+          console.log(`[Profile Update] Avatar uploaded successfully: ${avatarUrl}`);
         } catch (error: any) {
-          console.error('Failed to upload avatar:', error);
+          console.error(`[Profile Update Error] Failed to upload avatar for user ${userId}:`, {
+            fileName: avatarFile.name,
+            fileSize: `${(avatarFile.size / 1024 / 1024).toFixed(2)} MB`,
+            fileType: avatarFile.type,
+            userId,
+            error: error.message,
+            stack: error.stack
+          });
           alert(`Failed to upload avatar: ${error.message}`);
           setUploadingImages(false);
           setSaving(false);
@@ -376,9 +466,18 @@ function ProfilePageContent() {
 
       if (coverFile) {
         try {
+          console.log(`[Profile Update] Uploading cover image for user ${userId}...`);
           coverImageUrl = await uploadProfileImage(coverFile, 'cover', userId);
+          console.log(`[Profile Update] Cover image uploaded successfully: ${coverImageUrl}`);
         } catch (error: any) {
-          console.error('Failed to upload cover image:', error);
+          console.error(`[Profile Update Error] Failed to upload cover image for user ${userId}:`, {
+            fileName: coverFile.name,
+            fileSize: `${(coverFile.size / 1024 / 1024).toFixed(2)} MB`,
+            fileType: coverFile.type,
+            userId,
+            error: error.message,
+            stack: error.stack
+          });
           alert(`Failed to upload cover image: ${error.message}`);
           setUploadingImages(false);
           setSaving(false);
@@ -411,10 +510,23 @@ function ProfilePageContent() {
       for (let i = 0; i < photoFiles.length; i++) {
         if (photoFiles[i]) {
           try {
-            const photoUrl = await uploadProfileImage(photoFiles[i]!, 'photo', userId);
+            const file = photoFiles[i]!;
+            console.log(`[Profile Update] Uploading photo ${i + 1} for user ${userId}...`);
+            const photoUrl = await uploadProfileImage(file, 'photo', userId);
+            console.log(`[Profile Update] Photo ${i + 1} uploaded successfully: ${photoUrl}`);
             await api.addUserPhoto(photoUrl, i);
+            console.log(`[Profile Update] Photo ${i + 1} added to user profile`);
           } catch (error: any) {
-            console.error(`Failed to upload photo ${i + 1}:`, error);
+            const file = photoFiles[i]!;
+            console.error(`[Profile Update Error] Failed to upload photo ${i + 1} for user ${userId}:`, {
+              photoIndex: i + 1,
+              fileName: file.name,
+              fileSize: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+              fileType: file.type,
+              userId,
+              error: error.message,
+              stack: error.stack
+            });
             alert(`Failed to upload photo ${i + 1}: ${error.message}`);
           }
         }
@@ -513,7 +625,7 @@ function ProfilePageContent() {
         <div className="relative h-64 md:h-80 bg-gradient-to-br from-[#0ef9b4] via-[#0dd9a0] to-[#0ef9b4] overflow-hidden">
           {user?.cover_image_url ? (
             <Image
-              src={user.cover_image_url}
+              src={user.cover_image_url ?? undefined}
               alt="Cover"
               fill
               className="object-cover"
@@ -524,7 +636,7 @@ function ProfilePageContent() {
           )}
           {/* Edit Cover Button (only for own profile when on edit tab) */}
           {user && activeTab === 'edit' && (
-            <div className="absolute top-4 right-4">
+            <div className="absolute top-[45px] right-4">
               <label className="cursor-pointer inline-flex items-center gap-2 px-4 py-2 bg-black/50 hover:bg-black/70 text-white rounded-lg font-medium transition-colors backdrop-blur-sm">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -880,14 +992,6 @@ function ProfilePageContent() {
                       className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#0ef9b4] file:text-black hover:file:bg-[#0dd9a0] file:cursor-pointer disabled:opacity-50"
                     />
                   </label>
-                  <p className="mt-1 text-xs text-gray-500">Or enter a URL</p>
-                  <input
-                    type="url"
-                    value={formData.avatar_url}
-                    onChange={(e) => setFormData({ ...formData, avatar_url: e.target.value })}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-                    placeholder="https://example.com/avatar.jpg"
-                  />
                 </div>
               </div>
             </div>
@@ -898,7 +1002,7 @@ function ProfilePageContent() {
                 {formData.cover_image_url && (
                   <div className="w-32 h-20 rounded-lg overflow-hidden border-2 border-gray-200">
                     <Image
-                      src={formData.cover_image_url}
+                      src={formData.cover_image_url ?? undefined}
                       alt="Cover"
                       width={128}
                       height={80}
@@ -920,14 +1024,7 @@ function ProfilePageContent() {
                       className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#0ef9b4] file:text-black hover:file:bg-[#0dd9a0] file:cursor-pointer disabled:opacity-50"
                     />
                   </label>
-                  <p className="mt-1 text-xs text-gray-500">Or enter a URL (Recommended: 1200x400px landscape image)</p>
-                  <input
-                    type="url"
-                    value={formData.cover_image_url}
-                    onChange={(e) => setFormData({ ...formData, cover_image_url: e.target.value })}
-                    className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-                    placeholder="https://example.com/cover.jpg"
-                  />
+                  <p className="mt-1 text-xs text-gray-500">Recommended: 1200x400px landscape image</p>
                 </div>
               </div>
             </div>
@@ -1007,6 +1104,36 @@ function ProfilePageContent() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Profile Photos (up to 4)</label>
+              
+              {/* Multiple photo upload button */}
+              {photos.filter(Boolean).length < 4 && (
+                <div className="mb-4">
+                  <label className="block">
+                    <span className="sr-only">Upload photos</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleMultiplePhotoUpload}
+                      disabled={saving || uploadingImages}
+                      className="hidden"
+                      id="multiple-photo-upload"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById('multiple-photo-upload')?.click()}
+                      disabled={saving || uploadingImages}
+                      className="w-full px-4 py-3 bg-[#0ef9b4] text-black rounded-lg font-semibold hover:bg-[#0dd9a0] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      Select {4 - photos.filter(Boolean).length} Photo{4 - photos.filter(Boolean).length === 1 ? '' : 's'}
+                    </button>
+                  </label>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 {[0, 1, 2, 3].map((index) => (
                   <div key={index} className="aspect-square border-2 border-dashed border-gray-300 rounded-lg overflow-hidden relative">
@@ -1017,32 +1144,31 @@ function ProfilePageContent() {
                           type="button"
                           onClick={() => {
                             const newPhotos = [...photos];
-                            newPhotos.splice(index, 1);
+                            const newPhotoFiles = [...photoFiles];
+                            newPhotos[index] = '';
+                            newPhotoFiles[index] = null;
                             setPhotos(newPhotos);
+                            setPhotoFiles(newPhotoFiles);
                           }}
-                          className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600"
+                          className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600 transition-colors"
                         >
                           ×
                         </button>
                       </>
                     ) : (
-                      <label className="w-full h-full flex items-center justify-center cursor-pointer hover:bg-gray-50">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handleImageUpload('photo', file, index);
-                          }}
-                          className="hidden"
-                        />
+                      <button
+                        type="button"
+                        onClick={() => document.getElementById('multiple-photo-upload')?.click()}
+                        disabled={saving || uploadingImages}
+                        className="w-full h-full flex items-center justify-center bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
                         <div className="text-center">
                           <svg className="w-12 h-12 text-gray-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                           </svg>
                           <p className="text-sm text-gray-500">Add Photo</p>
                         </div>
-                      </label>
+                      </button>
                     )}
                   </div>
                 ))}
@@ -1115,6 +1241,18 @@ function ProfilePageContent() {
           </form>
         )}
       </div>
+      
+      {/* Connection Message Modal */}
+      {viewingUser && (
+        <ConnectionMessageModal
+          isOpen={showConnectionModal}
+          onClose={() => setShowConnectionModal(false)}
+          onSend={handleSendConnection}
+          userName={viewingUser.full_name || 'User'}
+          userSports={viewingUser.sports || []}
+        />
+      )}
+      
       <BottomNav />
     </div>
   );

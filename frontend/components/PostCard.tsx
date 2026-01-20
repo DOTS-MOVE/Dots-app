@@ -110,7 +110,7 @@ export default function PostCard({ post, onDelete, onUpdate }: PostCardProps) {
       {post.image_url && (
         <div className="mb-3 rounded-lg overflow-hidden">
           <Image
-            src={post.image_url}
+            src={post.image_url ?? undefined}
             alt="Post image"
             width={600}
             height={400}

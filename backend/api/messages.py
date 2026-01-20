@@ -274,14 +274,20 @@ async def create_message(
     
     # Create message
     try:
-        message_result = supabase.table("messages").insert({
+        message_data_dict = {
             "sender_id": user_id,
             "receiver_id": message_data.receiver_id,
             "event_id": message_data.event_id,
             "group_id": message_data.group_id,
             "content": message_data.content,
             "is_read": False
-        }).execute()
+        }
+        
+        # Add image_url if provided
+        if message_data.image_url:
+            message_data_dict["image_url"] = message_data.image_url
+        
+        message_result = supabase.table("messages").insert(message_data_dict).execute()
         
         if not message_result.data or len(message_result.data) == 0:
             raise HTTPException(
@@ -297,6 +303,7 @@ async def create_message(
             event_id=new_message.get("event_id"),
             group_id=new_message.get("group_id"),
             content=new_message["content"],
+            image_url=new_message.get("image_url"),
             is_read=new_message.get("is_read", False),
             created_at=datetime.fromisoformat(new_message["created_at"].replace("Z", "+00:00")) if isinstance(new_message.get("created_at"), str) else new_message.get("created_at")
         )
@@ -469,6 +476,45 @@ async def list_conversations(
     return conversations
 
 
+@router.post("/conversations/{conversation_id}/mark-read", status_code=status.HTTP_204_NO_CONTENT)
+async def mark_conversation_read(
+    conversation_id: int,
+    conversation_type: str = Query("user", description="Type: user, event, or group"),
+    current_user: dict = Depends(get_current_user)
+):
+    """Mark all messages in a conversation as read"""
+    try:
+        supabase: Client = get_supabase()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Supabase connection error: {str(e)}"
+        )
+    
+    user_id = current_user.get("id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User ID not found"
+        )
+    
+    try:
+        if conversation_type == "user":
+            # Mark all messages from this user as read
+            supabase.table("messages").update({"is_read": True}).eq("sender_id", conversation_id).eq("receiver_id", user_id).eq("is_read", False).execute()
+        elif conversation_type == "event":
+            # Mark all messages in this event as read (where user is receiver)
+            supabase.table("messages").update({"is_read": True}).eq("event_id", conversation_id).eq("receiver_id", user_id).eq("is_read", False).execute()
+        elif conversation_type == "group":
+            # Mark all messages in this group as read (where user is receiver)
+            supabase.table("messages").update({"is_read": True}).eq("group_id", conversation_id).eq("receiver_id", user_id).eq("is_read", False).execute()
+    except Exception as e:
+        # If marking as read fails, continue (don't block the user)
+        pass
+    
+    return None
+
+
 @router.get("/conversations/{conversation_id}", response_model=List[MessageDetail])
 async def get_conversation(
     conversation_id: int,
@@ -588,6 +634,7 @@ async def get_conversation(
             event_id=msg.get("event_id"),
             group_id=msg.get("group_id"),
             content=msg.get("content"),
+            image_url=msg.get("image_url"),
             is_read=msg.get("is_read", False),
             created_at=datetime.fromisoformat(msg["created_at"].replace("Z", "+00:00")) if isinstance(msg.get("created_at"), str) else msg.get("created_at"),
             sender=sender_data,

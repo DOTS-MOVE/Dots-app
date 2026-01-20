@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { api } from '@/lib/api';
 import { Post } from '@/types';
 import { useAuth } from '@/lib/auth';
+import { uploadImage } from '@/lib/storage';
 
 interface CreatePostFormProps {
   onPostCreated: (post: Post) => void;
@@ -13,7 +14,6 @@ interface CreatePostFormProps {
 export default function CreatePostForm({ onPostCreated, onCancel }: CreatePostFormProps) {
   const { user } = useAuth();
   const [content, setContent] = useState('');
-  const [imageUrl, setImageUrl] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
@@ -39,8 +39,6 @@ export default function CreatePostForm({ onPostCreated, onCancel }: CreatePostFo
         setImagePreview(reader.result as string);
       };
       reader.readAsDataURL(file);
-      // Clear URL input when file is selected
-      setImageUrl('');
     }
   };
 
@@ -52,14 +50,23 @@ export default function CreatePostForm({ onPostCreated, onCancel }: CreatePostFo
     setUploadingImage(false);
 
     try {
-      let finalImageUrl = imageUrl.trim();
+      let finalImageUrl: string | undefined = undefined;
 
       // Upload image file to Supabase Storage if provided
       if (imageFile) {
         setUploadingImage(true);
         try {
+          console.log(`[Post Create] Uploading image for post...`);
           finalImageUrl = await uploadImage(imageFile, 'images', 'posts');
+          console.log(`[Post Create] Image uploaded successfully: ${finalImageUrl}`);
         } catch (error: any) {
+          console.error(`[Post Create Error] Failed to upload image:`, {
+            fileName: imageFile.name,
+            fileSize: `${(imageFile.size / 1024 / 1024).toFixed(2)} MB`,
+            fileType: imageFile.type,
+            error: error.message,
+            stack: error.stack
+          });
           alert(`Failed to upload image: ${error.message}`);
           setUploadingImage(false);
           setPosting(false);
@@ -70,11 +77,10 @@ export default function CreatePostForm({ onPostCreated, onCancel }: CreatePostFo
 
       const newPost = await api.createPost({
         content: content.trim(),
-        image_url: finalImageUrl || undefined,
+        image_url: finalImageUrl,
       });
       onPostCreated(newPost);
       setContent('');
-      setImageUrl('');
       setImageFile(null);
       setImagePreview(null);
       if (onCancel) {
@@ -141,15 +147,6 @@ export default function CreatePostForm({ onPostCreated, onCancel }: CreatePostFo
             className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-[#0ef9b4] file:text-black hover:file:bg-[#0dd9a0] file:cursor-pointer disabled:opacity-50"
           />
         </label>
-        <p className="text-xs text-gray-500">Or enter an image URL:</p>
-        <input
-          type="url"
-          value={imageUrl}
-          onChange={(e) => setImageUrl(e.target.value)}
-          placeholder="Image URL (optional)"
-          className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0ef9b4] focus:border-transparent"
-          disabled={posting || uploadingImage || !!imageFile}
-        />
       </div>
 
       <div className="flex items-center justify-end gap-2">

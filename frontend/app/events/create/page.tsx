@@ -10,7 +10,7 @@ import { uploadEventImage } from '@/lib/storage';
 import Image from 'next/image';
 
 export default function CreateEventPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const [sports, setSports] = useState<Sport[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,8 +29,20 @@ export default function CreateEventPage() {
   });
 
   useEffect(() => {
+    // Wait for auth to finish loading
+    if (authLoading) {
+      return;
+    }
+    
+    // Redirect to login if not authenticated
+    if (!user) {
+      router.push('/login?redirect=/events/create');
+      return;
+    }
+    
+    // Load sports only if user is authenticated
     loadSports();
-  }, [user]);
+  }, [user, authLoading, router]);
 
   const loadSports = async () => {
     try {
@@ -104,7 +116,8 @@ export default function CreateEventPage() {
     }
   };
 
-  if (loading) {
+  // Show loading while checking auth or loading sports
+  if (authLoading || loading || !user) {
     return (
       <div className="min-h-screen bg-gray-50">
         <Navbar />

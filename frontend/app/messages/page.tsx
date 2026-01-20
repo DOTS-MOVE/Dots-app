@@ -9,6 +9,7 @@ import Navbar from '@/components/Navbar';
 import BottomNav from '@/components/BottomNav';
 import { api } from '@/lib/api';
 import { Conversation, Message } from '@/types';
+import { uploadImage } from '@/lib/storage';
 import Link from 'next/link';
 
 function MessagesPageContent() {
@@ -22,8 +23,14 @@ function MessagesPageContent() {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [showNewChat, setShowNewChat] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadConversations();
@@ -67,6 +74,9 @@ function MessagesPageContent() {
     try {
       const data = await api.getConversation(selectedConversation, conversationType);
       setMessages(data);
+      // Mark as read and reload conversations to update unread counts
+      await api.markConversationRead(selectedConversation, conversationType);
+      await loadConversations();
     } catch (error) {
       console.error('Failed to load messages:', error);
     }
@@ -74,11 +84,34 @@ function MessagesPageContent() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !selectedConversation) return;
+    if ((!newMessage.trim() && !imageFile) || !selectedConversation) return;
 
+    setUploadingImage(false);
     try {
+      let imageUrl: string | undefined = undefined;
+
+      // Upload image if provided
+      if (imageFile) {
+        setUploadingImage(true);
+        try {
+          const folder = conversationType === 'group' 
+            ? `messages/groups/${selectedConversation}`
+            : conversationType === 'event'
+            ? `messages/events/${selectedConversation}`
+            : `messages/users/${selectedConversation}`;
+          imageUrl = await uploadImage(imageFile, 'images', folder);
+        } catch (error: any) {
+          console.error('Failed to upload image:', error);
+          alert(`Failed to upload image: ${error.message}`);
+          setUploadingImage(false);
+          return;
+        }
+        setUploadingImage(false);
+      }
+
       const messageData: any = {
-        content: newMessage,
+        content: newMessage.trim() || (imageUrl ? '📷' : ''),
+        image_url: imageUrl,
       };
       
       if (conversationType === 'user') {
@@ -91,13 +124,65 @@ function MessagesPageContent() {
 
       await api.sendMessage(messageData);
       setNewMessage('');
+      setImageFile(null);
+      setImagePreview(null);
+      setShowEmojiPicker(false);
       await loadMessages();
       await loadConversations();
       inputRef.current?.focus();
     } catch (error: any) {
       alert(error.message || 'Failed to send message');
+      setUploadingImage(false);
     }
   };
+
+  const handleEmojiClick = (emoji: string) => {
+    setNewMessage(prev => prev + emoji);
+    setShowEmojiPicker(false);
+    inputRef.current?.focus();
+  };
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Image size must be less than 5MB');
+      return;
+    }
+
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Common emojis for quick access
+  const commonEmojis = ['😊', '👍', '❤️', '🎉', '🔥', '💪', '🏃', '⚽', '🏀', '🎾', '🏊', '🚴', '🧘', '🥾', '🏋️', '👏', '🙌', '🤝', '😄', '😎', '😍', '🥰', '🤔', '😮', '👍', '👎', '💯', '✨', '🌟', '⭐'];
+
+  useEffect(() => {
+    // Close emoji picker when clicking outside
+    const handleClickOutside = (event: MouseEvent) => {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
+        setShowEmojiPicker(false);
+      }
+    };
+
+    if (showEmojiPicker) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showEmojiPicker]);
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
@@ -174,7 +259,9 @@ function MessagesPageContent() {
           <div className="flex-1 overflow-y-auto">
             {conversations.length === 0 ? (
               <div className="p-8 text-center text-gray-500">
-                <div className="text-4xl mb-4">💬</div>
+                <svg className="w-12 h-12 mx-auto mb-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
                 <p>No conversations yet</p>
                 <p className="text-sm mt-2">Start a new chat to get started!</p>
               </div>
@@ -184,10 +271,15 @@ function MessagesPageContent() {
                 return (
                   <button
                     key={`${conv.type}-${conv.id}`}
-                    onClick={() => {
+                    onClick={async () => {
                       setSelectedConversation(conv.id);
                       setConversationType(conv.type);
                       router.push(`/messages?id=${conv.id}&type=${conv.type}`);
+                      // Mark as read immediately when opening
+                      if (conv.unread_count > 0) {
+                        await api.markConversationRead(conv.id, conv.type);
+                        await loadConversations();
+                      }
                     }}
                     className={`w-full p-4 text-left border-b border-gray-100 hover:bg-[#E6F9F4] transition-colors ${
                       isSelected ? 'bg-[#E6F9F4] border-l-4 border-l-[#0ef9b4]' : 'bg-white'
@@ -209,7 +301,9 @@ function MessagesPageContent() {
                         </div>
                         {conv.type === 'group' && (
                           <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-[#0ef9b4] rounded-full border-2 border-white flex items-center justify-center">
-                            <span className="text-xs">👥</span>
+                            <svg className="w-2.5 h-2.5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                            </svg>
                           </div>
                         )}
                       </div>
@@ -306,7 +400,9 @@ function MessagesPageContent() {
                 {messages.length === 0 ? (
                   <div className="flex items-center justify-center h-full">
                     <div className="text-center text-gray-500">
-                      <div className="text-4xl mb-4">💬</div>
+                      <svg className="w-12 h-12 mx-auto mb-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                      </svg>
                       <p>No messages yet</p>
                       <p className="text-sm mt-2">Start the conversation!</p>
                     </div>
@@ -352,7 +448,16 @@ function MessagesPageContent() {
                                 : 'bg-white text-gray-900 rounded-tl-sm'
                             }`}
                           >
-                            <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
+                            {message.image_url && (
+                              <img 
+                                src={message.image_url ?? undefined} 
+                                alt="Message attachment" 
+                                className="max-w-full h-auto rounded-lg mb-2 max-h-64 object-cover"
+                              />
+                            )}
+                            {message.content && (
+                              <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
+                            )}
                             {showTime && (
                               <p className={`text-xs mt-1.5 flex items-center gap-1 ${isMe ? 'text-gray-600' : 'text-gray-500'}`}>
                                 <span>{formatMessageTime(message.created_at)}</span>
@@ -374,11 +479,68 @@ function MessagesPageContent() {
 
               {/* Input Area */}
               <div className="bg-white px-6 py-4 border-t border-gray-200 shadow-lg">
-                <form onSubmit={handleSendMessage} className="flex items-end space-x-3">
-                  <div className="flex-1 bg-gray-100 rounded-3xl px-4 py-2.5 flex items-center">
-                    <button type="button" className="text-gray-500 hover:text-gray-700 mr-2 text-xl">
-                      😊
+                {/* Image Preview */}
+                {imagePreview && (
+                  <div className="mb-4 relative inline-block bg-gray-100 p-2 rounded-xl border-2 border-[#0ef9b4]">
+                    <img 
+                      src={imagePreview} 
+                      alt="Preview" 
+                      className="max-w-sm max-h-48 w-auto h-auto object-contain rounded-lg"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setImageFile(null);
+                        setImagePreview(null);
+                        if (fileInputRef.current) {
+                          fileInputRef.current.value = '';
+                        }
+                      }}
+                      className="absolute -top-2 -right-2 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors shadow-md font-bold"
+                      aria-label="Remove image"
+                    >
+                      ×
                     </button>
+                    <div className="absolute bottom-2 left-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded">
+                      {imageFile?.name || 'Image preview'}
+                    </div>
+                  </div>
+                )}
+
+                <form onSubmit={handleSendMessage} className="flex items-end space-x-3">
+                  <div className="flex-1 bg-gray-100 rounded-3xl px-4 py-2.5 flex items-center relative">
+                    {/* Emoji Picker Button */}
+                    <button 
+                      type="button" 
+                      onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                      className="text-gray-500 hover:text-gray-700 mr-2 flex-shrink-0"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </button>
+
+                    {/* Emoji Picker */}
+                    {showEmojiPicker && (
+                      <div 
+                        ref={emojiPickerRef}
+                        className="absolute bottom-full left-0 mb-2 bg-white rounded-xl shadow-2xl border border-gray-200 p-3 z-50 max-h-64 overflow-y-auto w-80"
+                      >
+                        <div className="grid grid-cols-8 gap-2">
+                          {commonEmojis.map((emoji, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => handleEmojiClick(emoji)}
+                              className="text-2xl hover:bg-gray-100 rounded-lg p-2 transition-colors"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <input
                       ref={inputRef}
                       type="text"
@@ -387,16 +549,40 @@ function MessagesPageContent() {
                       placeholder="Type a message..."
                       className="flex-1 bg-transparent text-sm focus:outline-none"
                     />
-                    <button type="button" className="text-gray-500 hover:text-gray-700 ml-2 text-xl">
-                      📎
+                    
+                    {/* Image Attachment Button */}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageSelect}
+                      className="hidden"
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="text-gray-500 hover:text-gray-700 ml-2 flex-shrink-0"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                      </svg>
                     </button>
                   </div>
                   <button
                     type="submit"
-                    disabled={!newMessage.trim()}
+                    disabled={(!newMessage.trim() && !imageFile) || uploadingImage}
                     className="w-12 h-12 bg-[#0ef9b4] text-black rounded-full flex items-center justify-center hover:bg-[#0dd9a0] transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-md"
                   >
-                    <span className="text-xl">➤</span>
+                    {uploadingImage ? (
+                      <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                    ) : (
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                      </svg>
+                    )}
                   </button>
                 </form>
               </div>
@@ -404,7 +590,9 @@ function MessagesPageContent() {
           ) : (
             <div className="flex-1 flex items-center justify-center bg-white">
               <div className="text-center text-gray-600">
-                <div className="text-7xl mb-6 opacity-30">💬</div>
+                <svg className="w-20 h-20 mx-auto mb-6 opacity-30 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
                 <p className="text-2xl font-bold mb-2 text-gray-700">Select a conversation</p>
                 <p className="text-sm text-gray-500">Choose a chat from the sidebar to start messaging</p>
               </div>

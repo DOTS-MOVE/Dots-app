@@ -775,18 +775,73 @@ export class ApiClient {
   }
 
   async updateBuddy(buddyId: number, status: 'accepted' | 'rejected'): Promise<Buddy> {
-    await delay(300);
-    const buddy = this.localBuddies.find(m => m.id === buddyId);
-    if (!buddy) throw new Error('Buddy not found');
-    buddy.status = status;
-    return buddy;
+    const token = await this.getToken();
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    try {
+      const response = await fetch(`${this.baseUrl}/buddies/${buddyId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Failed to update buddy' }));
+        throw new Error(error.detail || 'Failed to update buddy');
+      }
+
+      return response.json();
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        throw new Error('Request timeout - please check your connection');
+      }
+      throw error;
+    }
   }
 
   async deleteBuddy(buddyId: number): Promise<void> {
-    await delay(300);
-    const index = this.localBuddies.findIndex(m => m.id === buddyId);
-    if (index > -1) {
-      this.localBuddies.splice(index, 1);
+    const token = await this.getToken();
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    try {
+      const response = await fetch(`${this.baseUrl}/buddies/${buddyId}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Failed to delete buddy' }));
+        throw new Error(error.detail || 'Failed to delete buddy');
+      }
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        throw new Error('Request timeout - please check your connection');
+      }
+      throw error;
     }
   }
 
@@ -863,6 +918,11 @@ export class ApiClient {
         throw new Error(errorText || 'Failed to fetch conversation');
       }
 
+      // Mark messages as read after fetching them
+      this.markConversationRead(conversationId, type).catch(err => {
+        console.warn('Failed to mark conversation as read:', err);
+      });
+
       return response.json();
     } catch (error: any) {
       clearTimeout(timeoutId);
@@ -875,6 +935,41 @@ export class ApiClient {
       }
       console.error('getConversation error:', error);
       throw error;
+    }
+  }
+
+  async markConversationRead(conversationId: number, type: 'user' | 'event' | 'group' = 'user'): Promise<void> {
+    const token = await this.getToken();
+    if (!token) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    try {
+      const queryParams = new URLSearchParams();
+      queryParams.append('conversation_type', type);
+
+      const response = await fetch(`${this.baseUrl}/messages/conversations/${conversationId}/mark-read?${queryParams.toString()}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        // Don't throw error, just log warning
+        console.warn('Failed to mark conversation as read');
+      }
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      // Silently fail - this is not critical
+      console.warn('Failed to mark conversation as read:', error);
     }
   }
 

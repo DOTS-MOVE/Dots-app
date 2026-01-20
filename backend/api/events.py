@@ -51,7 +51,16 @@ async def create_event(
     event_dict['host_id'] = user_id
     event_dict['is_cancelled'] = False
     event_dict['is_public'] = event_dict.get('is_public', True)
-    # cover_image_url is included in event_dict from event_data if provided
+    
+    # Convert datetime objects to ISO format strings for Supabase
+    if isinstance(event_dict.get('start_time'), datetime):
+        event_dict['start_time'] = event_dict['start_time'].isoformat()
+    if isinstance(event_dict.get('end_time'), datetime):
+        event_dict['end_time'] = event_dict['end_time'].isoformat()
+    
+    # Set image_url from cover_image_url if provided (for backwards compatibility)
+    if event_dict.get('cover_image_url') and not event_dict.get('image_url'):
+        event_dict['image_url'] = event_dict['cover_image_url']
     
     try:
         event_result = supabase.table("events").insert(event_dict).execute()
@@ -88,6 +97,36 @@ async def create_event(
         "icon": sport_result.data.get("icon") or "🏃"
     }
     
+    # Get participant count (exclude host)
+    participant_count = 0
+    host_id = new_event.get("host_id")
+    try:
+        participant_result = supabase.table("event_rsvps").select("id").eq("event_id", new_event["id"]).eq("status", "approved").execute()
+        if participant_result.data:
+            # Count participants excluding the host
+            participants = [r for r in participant_result.data if r.get("user_id") != host_id]
+            participant_count = len(participants)
+    except Exception:
+        participant_count = 0
+
+    # Get host info
+    host_data = None
+    if host_id:
+        try:
+            host_result = supabase.table("users").select("id, full_name, avatar_url").eq("id", host_id).single().execute()
+            if host_result.data:
+                host_data = {
+                    "id": host_result.data.get("id"),
+                    "full_name": host_result.data.get("full_name") or "Unknown",
+                    "avatar_url": host_result.data.get("avatar_url")
+                }
+        except Exception:
+            host_data = {
+                "id": host_id,
+                "full_name": "Unknown",
+                "avatar_url": None
+            }
+
     return EventResponse(
         id=new_event["id"],
         title=new_event["title"],
@@ -96,7 +135,7 @@ async def create_event(
         start_time=new_event["start_time"],
         end_time=new_event.get("end_time"),
         sport_id=new_event.get("sport_id"),
-        host_id=new_event.get("host_id"),
+        host_id=host_id,
         max_participants=new_event.get("max_participants"),
         is_cancelled=new_event.get("is_cancelled", False),
         is_public=new_event.get("is_public", True),
@@ -104,9 +143,10 @@ async def create_event(
         cover_image_url=new_event.get("cover_image_url"),
         created_at=new_event.get("created_at"),
         updated_at=new_event.get("updated_at"),
-        participant_count=1,
+        participant_count=participant_count,
         pending_requests_count=0,
-        sport=sport_data
+        sport=sport_data,
+        host=host_data
     )
 
 
@@ -166,11 +206,15 @@ async def list_events(
         if not event_id:
             continue
         
-        # Get participant count (approved RSVPs)
+        # Get participant count (approved RSVPs excluding host)
         participant_count = 0
+        host_id = event.get("host_id")
         try:
-            participant_result = supabase.table("event_rsvps").select("id", count="exact").eq("event_id", event_id).eq("status", "approved").execute()
-            participant_count = participant_result.count if participant_result.count is not None else 0
+            participant_result = supabase.table("event_rsvps").select("user_id").eq("event_id", event_id).eq("status", "approved").execute()
+            if participant_result.data:
+                # Count participants excluding the host
+                participants = [r for r in participant_result.data if r.get("user_id") != host_id]
+                participant_count = len(participants)
         except Exception:
             participant_count = 0
         
@@ -200,6 +244,24 @@ async def list_events(
                     "icon": "🏃"
                 }
         
+        # Get host info
+        host_data = None
+        if host_id:
+            try:
+                host_result = supabase.table("users").select("id, full_name, avatar_url").eq("id", host_id).single().execute()
+                if host_result.data:
+                    host_data = {
+                        "id": host_result.data.get("id"),
+                        "full_name": host_result.data.get("full_name") or "Unknown",
+                        "avatar_url": host_result.data.get("avatar_url")
+                    }
+            except Exception:
+                host_data = {
+                    "id": host_id,
+                    "full_name": "Unknown",
+                    "avatar_url": None
+                }
+        
         result.append(EventResponse(
             id=event["id"],
             title=event["title"],
@@ -218,7 +280,8 @@ async def list_events(
             updated_at=event.get("updated_at"),
             participant_count=participant_count,
             pending_requests_count=pending_count,
-            sport=sport_data
+            sport=sport_data,
+            host=host_data
         ))
     
     return result
@@ -254,12 +317,14 @@ async def get_event(
             detail="Event not found"
         )
     
-    # Get approved participants
+    # Get approved participants (excluding host)
     participants = []
+    host_id = event.get("host_id")
     try:
         rsvps_result = supabase.table("event_rsvps").select("user_id").eq("event_id", event_id).eq("status", "approved").execute()
         if rsvps_result.data:
-            participant_ids = [r["user_id"] for r in rsvps_result.data]
+            # Filter out the host
+            participant_ids = [r["user_id"] for r in rsvps_result.data if r.get("user_id") != host_id]
             if participant_ids:
                 users_result = supabase.table("users").select("id, full_name, avatar_url, location").in_("id", participant_ids).execute()
                 if users_result.data:
@@ -364,6 +429,13 @@ async def update_event(
     
     # Update event
     update_data = event_update.dict(exclude_unset=True)
+    
+    # Convert datetime objects to ISO format strings for Supabase
+    if isinstance(update_data.get('start_time'), datetime):
+        update_data['start_time'] = update_data['start_time'].isoformat()
+    if isinstance(update_data.get('end_time'), datetime):
+        update_data['end_time'] = update_data['end_time'].isoformat()
+    
     try:
         updated_result = supabase.table("events").update(update_data).eq("id", event_id).execute()
         if not updated_result.data:
@@ -380,12 +452,16 @@ async def update_event(
             detail=f"Failed to update event: {str(e)}"
         )
     
-    # Get participant and pending counts
+    # Get participant and pending counts (excluding host)
     participant_count = 0
     pending_count = 0
+    host_id = event.get("host_id")
     try:
-        participant_result = supabase.table("event_rsvps").select("id", count="exact").eq("event_id", event_id).eq("status", "approved").execute()
-        participant_count = participant_result.count if participant_result.count is not None else 0
+        participant_result = supabase.table("event_rsvps").select("user_id").eq("event_id", event_id).eq("status", "approved").execute()
+        if participant_result.data:
+            # Count participants excluding the host
+            participants = [r for r in participant_result.data if r.get("user_id") != host_id]
+            participant_count = len(participants)
     except Exception:
         participant_count = 0
     
@@ -409,6 +485,24 @@ async def update_event(
         except Exception:
             sport_data = {"id": updated_event.get("sport_id"), "name": "Unknown Sport", "icon": "🏃"}
     
+    # Get host info
+    host_data = None
+    if host_id:
+        try:
+            host_result = supabase.table("users").select("id, full_name, avatar_url").eq("id", host_id).single().execute()
+            if host_result.data:
+                host_data = {
+                    "id": host_result.data.get("id"),
+                    "full_name": host_result.data.get("full_name") or "Unknown",
+                    "avatar_url": host_result.data.get("avatar_url")
+                }
+        except Exception:
+            host_data = {
+                "id": host_id,
+                "full_name": "Unknown",
+                "avatar_url": None
+            }
+    
     return EventResponse(
         id=updated_event["id"],
         title=updated_event["title"],
@@ -417,7 +511,7 @@ async def update_event(
         start_time=updated_event["start_time"],
         end_time=updated_event.get("end_time"),
         sport_id=updated_event.get("sport_id"),
-        host_id=updated_event.get("host_id"),
+        host_id=host_id,
         max_participants=updated_event.get("max_participants"),
         is_cancelled=updated_event.get("is_cancelled", False),
         is_public=updated_event.get("is_public", True),
@@ -427,7 +521,8 @@ async def update_event(
         updated_at=updated_event.get("updated_at"),
         participant_count=participant_count,
         pending_requests_count=pending_count,
-        sport=sport_data
+        sport=sport_data,
+        host=host_data
     )
 
 
@@ -489,11 +584,17 @@ async def rsvp_event(
         # If query fails, continue (might be a connection issue)
         pass
     
-    # Check max participants (only for approved RSVPs)
+    # Check max participants (only for approved RSVPs, excluding host)
     if event.get("max_participants"):
         try:
-            current_count_result = supabase.table("event_rsvps").select("id", count="exact").eq("event_id", event_id).eq("status", "approved").execute()
-            current_count = current_count_result.count if current_count_result.count is not None else 0
+            host_id = event.get("host_id")
+            current_count_result = supabase.table("event_rsvps").select("user_id").eq("event_id", event_id).eq("status", "approved").execute()
+            if current_count_result.data:
+                # Count participants excluding the host
+                participants = [r for r in current_count_result.data if r.get("user_id") != host_id]
+                current_count = len(participants)
+            else:
+                current_count = 0
             if current_count >= event.get("max_participants"):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -583,11 +684,15 @@ async def get_my_events(
         
         event_id = event_data["id"]
         
-        # Get participant count (approved RSVPs) - handle errors gracefully
+        # Get participant count (approved RSVPs excluding host) - handle errors gracefully
         participant_count = 0
+        host_id = event_data.get("host_id")
         try:
-            participant_result = supabase.table("event_rsvps").select("id", count="exact").eq("event_id", event_id).eq("status", "approved").execute()
-            participant_count = participant_result.count if participant_result.count is not None else 0
+            participant_result = supabase.table("event_rsvps").select("user_id").eq("event_id", event_id).eq("status", "approved").execute()
+            if participant_result.data:
+                # Count participants excluding the host
+                participants = [r for r in participant_result.data if r.get("user_id") != host_id]
+                participant_count = len(participants)
         except Exception:
             participant_count = 0
         
@@ -618,6 +723,24 @@ async def get_my_events(
                     "icon": "🏃"
                 }
         
+        # Get host info
+        host_data = None
+        if host_id:
+            try:
+                host_result = supabase.table("users").select("id, full_name, avatar_url").eq("id", host_id).single().execute()
+                if host_result.data:
+                    host_data = {
+                        "id": host_result.data.get("id"),
+                        "full_name": host_result.data.get("full_name") or "Unknown",
+                        "avatar_url": host_result.data.get("avatar_url")
+                    }
+            except Exception:
+                host_data = {
+                    "id": host_id,
+                    "full_name": "Unknown",
+                    "avatar_url": None
+                }
+        
         return EventResponse(
             id=event_data["id"],
             title=event_data["title"],
@@ -626,7 +749,7 @@ async def get_my_events(
             start_time=event_data["start_time"],
             end_time=event_data.get("end_time"),
             sport_id=event_data.get("sport_id"),
-            host_id=event_data.get("host_id"),
+            host_id=host_id,
             max_participants=event_data.get("max_participants"),
             is_cancelled=event_data.get("is_cancelled", False),
             is_public=event_data.get("is_public", True),
@@ -636,7 +759,8 @@ async def get_my_events(
             updated_at=event_data.get("updated_at"),
             participant_count=participant_count,
             pending_requests_count=pending_count,
-            sport=sport_data
+            sport=sport_data,
+            host=host_data
         )
     
     # Get events owned by user - handle errors gracefully
@@ -835,11 +959,17 @@ async def approve_rsvp(
             detail="RSVP not found"
         )
     
-    # Check max participants before approving
+    # Check max participants before approving (excluding host)
     if event.get("max_participants"):
         try:
-            current_count_result = supabase.table("event_rsvps").select("id", count="exact").eq("event_id", event_id).eq("status", "approved").execute()
-            current_count = current_count_result.count if current_count_result.count is not None else 0
+            host_id = event.get("host_id")
+            current_count_result = supabase.table("event_rsvps").select("user_id").eq("event_id", event_id).eq("status", "approved").execute()
+            if current_count_result.data:
+                # Count participants excluding the host
+                participants = [r for r in current_count_result.data if r.get("user_id") != host_id]
+                current_count = len(participants)
+            else:
+                current_count = 0
             if current_count >= event.get("max_participants"):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,

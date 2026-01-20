@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import dynamic from 'next/dynamic';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
@@ -15,16 +14,6 @@ import { api } from '@/lib/api';
 import { Event, Sport } from '@/types';
 import Link from 'next/link';
 
-// Dynamically import EventsMap to avoid SSR issues with Leaflet
-const EventsMap = dynamic(() => import('@/components/EventsMap'), {
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-[600px] bg-gray-200 rounded-3xl flex items-center justify-center">
-      <div className="text-gray-600">Loading map...</div>
-    </div>
-  ),
-});
-
 export default function EventsPage() {
   const { user } = useAuth();
   const router = useRouter();
@@ -35,30 +24,10 @@ export default function EventsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSport, setSelectedSport] = useState<number | null>(null);
   const [locationFilter, setLocationFilter] = useState('');
-  const [viewMode, setViewMode] = useState<'list' | 'map' | 'calendar'>('list');
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
 
   useEffect(() => {
     loadData();
-    
-    // Get user location
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setUserLocation({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          });
-        },
-        () => {
-          // Default to San Francisco if geolocation fails
-          setUserLocation({ lat: 37.7749, lng: -122.4194 });
-        }
-      );
-    } else {
-      // Default to San Francisco if geolocation not available
-      setUserLocation({ lat: 37.7749, lng: -122.4194 });
-    }
   }, [user]);
 
   useEffect(() => {
@@ -234,19 +203,6 @@ export default function EventsPage() {
                 </svg>
                 Calendar
               </button>
-              <button
-                onClick={() => setViewMode('map')}
-                className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-300 flex items-center gap-2 ${
-                  viewMode === 'map'
-                    ? 'bg-[#0ef9b4] text-black shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-                </svg>
-                Map
-              </button>
             </div>
             <Link 
               href="/events/create" 
@@ -257,7 +213,7 @@ export default function EventsPage() {
           </div>
         </div>
 
-        {/* Events Grid or Map */}
+        {/* Events Grid or Calendar */}
         {events.length === 0 ? (
           <div className="text-center py-16 animate-in fade-in duration-500">
             <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center">
@@ -283,10 +239,6 @@ export default function EventsPage() {
         ) : viewMode === 'calendar' ? (
           <div className="animate-in fade-in duration-500">
             <EventsCalendar events={events} />
-          </div>
-        ) : viewMode === 'map' ? (
-          <div className="animate-in fade-in duration-500">
-            <EventsMap events={events} userLocation={userLocation || undefined} />
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

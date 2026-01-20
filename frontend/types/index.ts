@@ -70,6 +70,7 @@ export interface Message {
   event_id: number | null;
   group_id: number | null;
   content: string;
+  image_url?: string | null;
   is_read: boolean;
   created_at: string;
   sender?: User;

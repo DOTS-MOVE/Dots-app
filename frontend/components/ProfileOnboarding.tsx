@@ -121,6 +121,87 @@ export default function ProfileOnboarding({ onComplete }: ProfileOnboardingProps
     reader.readAsDataURL(file);
   };
 
+  const handleMultiplePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const currentPhotoCount = photos.filter(Boolean).length;
+    const maxPhotos = 4;
+    const remainingSlots = maxPhotos - currentPhotoCount;
+
+    if (files.length > remainingSlots) {
+      alert(`You can only add ${remainingSlots} more photo${remainingSlots === 1 ? '' : 's'}. You already have ${currentPhotoCount} photo${currentPhotoCount === 1 ? '' : 's'}.`);
+      e.target.value = '';
+      return;
+    }
+
+    // Validate all files
+    const validFiles: File[] = [];
+    const invalidFiles: string[] = [];
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file.type.startsWith('image/')) {
+        invalidFiles.push(`${file.name} (not an image)`);
+        continue;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        invalidFiles.push(`${file.name} (larger than 5MB)`);
+        continue;
+      }
+      validFiles.push(file);
+    }
+
+    if (invalidFiles.length > 0) {
+      alert(`Some files were skipped:\n${invalidFiles.join('\n')}`);
+    }
+
+    if (validFiles.length === 0) {
+      e.target.value = '';
+      return;
+    }
+
+    // Find available slots
+    const newPhotos = [...photos];
+    const newPhotoFiles = [...photoFiles];
+    const availableSlots: number[] = [];
+    
+    for (let i = 0; i < maxPhotos; i++) {
+      if (!newPhotos[i]) {
+        availableSlots.push(i);
+      }
+    }
+
+    // Process files and fill available slots
+    const fileReaders: Promise<void>[] = [];
+    
+    for (let i = 0; i < Math.min(validFiles.length, availableSlots.length); i++) {
+      const file = validFiles[i];
+      const slotIndex = availableSlots[i];
+      
+      const readerPromise = new Promise<void>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          newPhotos[slotIndex] = reader.result as string;
+          newPhotoFiles[slotIndex] = file;
+          resolve();
+        };
+        reader.readAsDataURL(file);
+      });
+      
+      fileReaders.push(readerPromise);
+    }
+
+    // Update state once all files are processed
+    Promise.all(fileReaders).then(() => {
+      setPhotos([...newPhotos]);
+      setPhotoFiles([...newPhotoFiles]);
+    });
+
+    // Reset input so same files can be selected again if needed
+    e.target.value = '';
+  };
+
   const handleNext = async () => {
     if (step === 1) {
       // Validate only name and age
@@ -220,20 +301,36 @@ export default function ProfileOnboarding({ onComplete }: ProfileOnboardingProps
 
       if (avatarFile) {
         try {
+          console.log(`[Profile Onboarding] Uploading avatar for user ${userId}...`);
           avatarUrl = await uploadProfileImage(avatarFile, 'avatar', userId);
-          console.log('Avatar uploaded');
+          console.log(`[Profile Onboarding] Avatar uploaded successfully: ${avatarUrl}`);
         } catch (error: any) {
-          console.error('Failed to upload avatar:', error);
+          console.error(`[Profile Onboarding Error] Failed to upload avatar for user ${userId}:`, {
+            fileName: avatarFile.name,
+            fileSize: `${(avatarFile.size / 1024 / 1024).toFixed(2)} MB`,
+            fileType: avatarFile.type,
+            userId,
+            error: error.message,
+            stack: error.stack
+          });
           alert(`Failed to upload avatar: ${error.message}`);
         }
       }
 
       if (coverFile) {
         try {
+          console.log(`[Profile Onboarding] Uploading cover image for user ${userId}...`);
           coverImageUrl = await uploadProfileImage(coverFile, 'cover', userId);
-          console.log('Cover image uploaded');
+          console.log(`[Profile Onboarding] Cover image uploaded successfully: ${coverImageUrl}`);
         } catch (error: any) {
-          console.error('Failed to upload cover image:', error);
+          console.error(`[Profile Onboarding Error] Failed to upload cover image for user ${userId}:`, {
+            fileName: coverFile.name,
+            fileSize: `${(coverFile.size / 1024 / 1024).toFixed(2)} MB`,
+            fileType: coverFile.type,
+            userId,
+            error: error.message,
+            stack: error.stack
+          });
           alert(`Failed to upload cover image: ${error.message}`);
         }
       }
@@ -253,11 +350,23 @@ export default function ProfileOnboarding({ onComplete }: ProfileOnboardingProps
       for (let i = 0; i < photoFiles.length; i++) {
         if (photoFiles[i]) {
           try {
-            const photoUrl = await uploadProfileImage(photoFiles[i]!, 'photo', userId);
+            const file = photoFiles[i]!;
+            console.log(`[Profile Onboarding] Uploading photo ${i + 1} for user ${userId}...`);
+            const photoUrl = await uploadProfileImage(file, 'photo', userId);
+            console.log(`[Profile Onboarding] Photo ${i + 1} uploaded successfully: ${photoUrl}`);
             await api.addUserPhoto(photoUrl, i);
-            console.log(`Photo ${i + 1} uploaded`);
+            console.log(`[Profile Onboarding] Photo ${i + 1} added to user profile`);
           } catch (error: any) {
-            console.error(`Failed to upload photo ${i + 1}:`, error);
+            const file = photoFiles[i]!;
+            console.error(`[Profile Onboarding Error] Failed to upload photo ${i + 1} for user ${userId}:`, {
+              photoIndex: i + 1,
+              fileName: file.name,
+              fileSize: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+              fileType: file.type,
+              userId,
+              error: error.message,
+              stack: error.stack
+            });
             alert(`Failed to upload photo ${i + 1}: ${error.message}`);
           }
         }
@@ -429,7 +538,7 @@ export default function ProfileOnboarding({ onComplete }: ProfileOnboardingProps
                 <div className="flex items-center gap-4">
                   {formData.cover_image_url && (
                     <div className="w-32 h-20 rounded-lg overflow-hidden border-2 border-gray-200">
-                      <Image src={formData.cover_image_url} alt="Cover" width={128} height={80} className="object-cover w-full h-full" />
+                      <Image src={formData.cover_image_url ?? undefined} alt="Cover" width={128} height={80} className="object-cover w-full h-full" />
                     </div>
                   )}
                   <label className="flex-1">
@@ -470,6 +579,35 @@ export default function ProfileOnboarding({ onComplete }: ProfileOnboardingProps
               <h2 className="text-3xl font-bold text-gray-900">Add Your Photos</h2>
               <p className="text-gray-600">Upload up to 4 photos for your profile (optional)</p>
 
+              {/* Multiple photo upload button */}
+              {photos.filter(Boolean).length < 4 && (
+                <div>
+                  <label className="block">
+                    <span className="sr-only">Upload photos</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleMultiplePhotoUpload}
+                      disabled={loading}
+                      className="hidden"
+                      id="multiple-photo-upload-onboarding"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => document.getElementById('multiple-photo-upload-onboarding')?.click()}
+                      disabled={loading}
+                      className="w-full px-4 py-3 bg-[#0ef9b4] text-black rounded-lg font-semibold hover:bg-[#0dd9a0] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      Select {4 - photos.filter(Boolean).length} Photo{4 - photos.filter(Boolean).length === 1 ? '' : 's'}
+                    </button>
+                  </label>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 {[0, 1, 2, 3].map((index) => (
                   <div key={index} className="aspect-square border-2 border-dashed border-gray-300 rounded-lg overflow-hidden relative">
@@ -479,36 +617,36 @@ export default function ProfileOnboarding({ onComplete }: ProfileOnboardingProps
                         <button
                           onClick={() => {
                             const newPhotos = [...photos];
-                            newPhotos.splice(index, 1);
+                            const newPhotoFiles = [...photoFiles];
+                            newPhotos[index] = '';
+                            newPhotoFiles[index] = null;
                             setPhotos(newPhotos);
+                            setPhotoFiles(newPhotoFiles);
                           }}
-                          className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600"
+                          className="absolute top-2 right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600 transition-colors"
                         >
                           ×
                         </button>
                       </>
                     ) : (
-                      <label className="w-full h-full flex items-center justify-center cursor-pointer hover:bg-gray-50">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handleImageUpload('photo', file, index);
-                          }}
-                          className="hidden"
-                        />
+                      <button
+                        type="button"
+                        onClick={() => document.getElementById('multiple-photo-upload-onboarding')?.click()}
+                        disabled={loading}
+                        className="w-full h-full flex items-center justify-center bg-gray-50 hover:bg-gray-100 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
                         <div className="text-center">
                           <svg className="w-12 h-12 text-gray-400 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                           </svg>
                           <p className="text-sm text-gray-500">Add Photo</p>
                         </div>
-                      </label>
+                      </button>
                     )}
                   </div>
                 ))}
               </div>
+              <p className="text-xs text-gray-500 text-center">{photos.filter(Boolean).length}/4 photos added</p>
 
               <div className="flex gap-4">
                 <button
