@@ -112,12 +112,19 @@ function LoginPageContent() {
           </button>
         </form>
 
-        {/* Sign Up Link */}
-        <div className="text-center">
-          <span className="text-sm text-gray-700">New user? </span>
-          <Link href="/register" className="text-sm font-medium text-[#0ef9b4] hover:text-[#0dd9a0]">
-            Join
-          </Link>
+        {/* Sign Up and Forgot Password Links */}
+        <div className="space-y-3 text-center">
+          <div>
+            <span className="text-sm text-gray-700">New user? </span>
+            <Link href="/register" className="text-sm font-medium text-[#0ef9b4] hover:text-[#0dd9a0]">
+              Join
+            </Link>
+          </div>
+          <div>
+            <Link href="/forgot-password" className="text-sm font-medium text-[#0ef9b4] hover:text-[#0dd9a0]">
+              Forgot password?
+            </Link>
+          </div>
         </div>
       </div>
     </div>
