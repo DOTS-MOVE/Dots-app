@@ -22,7 +22,7 @@ import { uploadProfileImage } from '@/lib/storage';
 type Tab = 'posts' | 'events' | 'edit';
 
 function ProfilePageContent() {
-  const { user: currentUser, loading: authLoading, refreshUser } = useAuth();
+  const { user: currentUser, loading: authLoading, refreshUser, logout } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [viewingUserId, setViewingUserId] = useState<number | null>(null);
@@ -75,6 +75,9 @@ function ProfilePageContent() {
 
   // Check for userId query param to view another user's profile
   useEffect(() => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+
     const userIdParam = searchParams?.get('userId');
     if (userIdParam) {
       const userId = parseInt(userIdParam);
@@ -82,17 +85,21 @@ function ProfilePageContent() {
         setViewingUserId(userId);
         setViewingUserLoading(true);
         setError(null);
-        api.getUser(userId)
+        api.getUser(userId, { signal })
           .then((userData) => {
+            if (signal.aborted) return;
             setViewingUser(userData);
             checkBuddyStatus(userId);
           })
           .catch((err) => {
+            if (err?.name === 'AbortError') return;
             console.error('Failed to load user profile:', err);
             setError('Failed to load user profile');
             setViewingUser(null);
           })
-          .finally(() => setViewingUserLoading(false));
+          .finally(() => {
+            if (!signal.aborted) setViewingUserLoading(false);
+          });
       } else {
         setViewingUserId(null);
         setViewingUser(null);
@@ -105,6 +112,8 @@ function ProfilePageContent() {
       setBuddyStatus('none');
       setViewingUserLoading(false);
     }
+
+    return () => controller.abort();
   }, [searchParams, currentUser?.id]);
 
   const checkBuddyStatus = async (otherUserId: number) => {
@@ -130,6 +139,11 @@ function ProfilePageContent() {
       console.error('Failed to check buddy status:', error);
       setBuddyStatus('none');
     }
+  };
+
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
   };
 
   const handleConnect = () => {
@@ -191,35 +205,35 @@ function ProfilePageContent() {
       setContentLoading(false);
       return;
     }
-    let isMounted = true;
+    const controller = new AbortController();
+    const signal = controller.signal;
     setContentLoading(true);
     setError(null);
+
     const loadContent = async () => {
       try {
         if (isViewingOtherUser) {
-          const postsData = await api.getPosts(user.id).catch(() => []);
-          if (isMounted) {
-            setPosts(postsData || []);
-            setUserEvents({ owned: [], attending: [], attended: [] });
-          }
+          const postsData = await api.getPosts(user.id, 20, 0, { signal }).catch(() => []);
+          if (signal.aborted) return;
+          setPosts(postsData || []);
+          setUserEvents({ owned: [], attending: [], attended: [] });
         } else {
           const [postsData, eventsData] = await Promise.all([
-            api.getPosts(user.id).catch(() => []),
-            api.getMyEvents().catch(() => ({ owned: [], attending: [], attended: [] })),
+            api.getPosts(user.id, 20, 0, { signal }).catch(() => []),
+            api.getMyEvents({ signal }).catch(() => ({ owned: [], attending: [], attended: [] })),
           ]);
-          if (isMounted) {
-            setPosts(postsData || []);
-            setUserEvents(eventsData || { owned: [], attending: [], attended: [] });
-          }
+          if (signal.aborted) return;
+          setPosts(postsData || []);
+          setUserEvents(eventsData || { owned: [], attending: [], attended: [] });
         }
       } catch {
-        if (isMounted) setPosts([]);
+        if (!signal.aborted) setPosts([]);
       } finally {
-        if (isMounted) setContentLoading(false);
+        if (!signal.aborted) setContentLoading(false);
       }
     };
     loadContent();
-    return () => { isMounted = false; };
+    return () => controller.abort();
   }, [user?.id, isViewingOtherUser]);
 
   const loadData = async () => {
@@ -589,6 +603,17 @@ function ProfilePageContent() {
             <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 pb-1">
               <div className="min-w-0">
                 <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 truncate">{user?.full_name || 'Guest User'}</h1>
+                {!isViewingOtherUser && currentUser && (
+                  <button
+                    onClick={handleLogout}
+                    className="mt-2 md:hidden inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                    Log out
+                  </button>
+                )}
                 {(user?.location || (user?.sports && user.sports.length > 0)) && (
                   <p className="text-gray-600 text-sm mt-0.5 truncate">
                     {[user?.location, user?.sports?.map(s => s.name).join(', ')].filter(Boolean).join(' · ')}

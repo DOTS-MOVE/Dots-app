@@ -4,6 +4,7 @@ import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
 import BetaBanner from "@/components/BetaBanner";
 import ProfileOnboardingWrapper from "@/components/ProfileOnboardingWrapper";
+import SuppressAbortErrors from "@/components/SuppressAbortErrors";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -30,10 +31,26 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="scroll-smooth">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              window.addEventListener('unhandledrejection', function(e) {
+                var r = e.reason;
+                if (r && (r.name === 'AbortError' || (typeof r.message === 'string' && r.message.toLowerCase().indexOf('aborted') !== -1))) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              }, true);
+            `,
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-white`}
       >
         <AuthProvider>
+          <SuppressAbortErrors />
           <ProfileOnboardingWrapper>
             <BetaBanner />
             {children}

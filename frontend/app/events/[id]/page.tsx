@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { useRouter, useParams } from 'next/navigation';
 import Navbar from '@/components/Navbar';
+import BottomNav from '@/components/BottomNav';
 import ProfileAvatar from '@/components/ProfileAvatar';
 import { EventDetailSkeleton } from '@/components/SkeletonLoader';
 import { api } from '@/lib/api';
@@ -21,18 +22,25 @@ export default function EventDetailPage() {
   const [isParticipant, setIsParticipant] = useState(false);
 
   useEffect(() => {
-    loadEvent();
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    loadEvent(signal).finally(() => {
+      if (!signal.aborted) setLoading(false);
+    });
+
+    return () => controller.abort();
   }, [user, eventId]);
 
-  const loadEvent = async () => {
+  const loadEvent = async (signal?: AbortSignal) => {
     try {
-      const eventData = await api.getEvent(eventId);
+      const eventData = await api.getEvent(eventId, { signal });
+      if (signal?.aborted) return;
       setEvent(eventData);
       setIsParticipant(eventData.participants?.some(p => p.id === user?.id) || false);
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
       console.error('Failed to load event:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -44,7 +52,7 @@ export default function EventDetailPage() {
     setRsvping(true);
     try {
       await api.rsvpEvent(eventId);
-      await loadEvent();
+      await loadEvent(undefined);
     } catch (error: any) {
       if (error?.message?.toLowerCase().includes('not authenticated')) {
         router.push('/login?redirect=' + encodeURIComponent('/events/' + eventId));
@@ -64,7 +72,7 @@ export default function EventDetailPage() {
     setRsvping(true);
     try {
       await api.cancelRsvp(eventId);
-      await loadEvent();
+      await loadEvent(undefined);
     } catch (error: any) {
       if (error?.message?.toLowerCase().includes('not authenticated')) {
         router.push('/login?redirect=' + encodeURIComponent('/events/' + eventId));
@@ -78,20 +86,31 @@ export default function EventDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 pb-20 md:pb-0">
         <Navbar />
         <EventDetailSkeleton />
+        <BottomNav />
       </div>
     );
   }
 
   if (!event) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 pb-20 md:pb-0">
         <Navbar />
-        <div className="flex items-center justify-center h-64">
-          <div className="text-gray-600">Event not found</div>
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-4">
+          <p className="text-gray-600">Event not found</p>
+          <Link
+            href="/events"
+            className="flex items-center gap-2 px-4 py-2 bg-[#0ef9b4] text-black rounded-xl font-medium hover:bg-[#0dd9a0] transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to Events
+          </Link>
         </div>
+        <BottomNav />
       </div>
     );
   }
@@ -133,11 +152,22 @@ export default function EventDetailPage() {
   const sportStyle = event.sport ? sportStyles[event.sport.name] || { icon: '🏃', gradient: 'from-[#0ef9b4] to-[#0dd9a0]' } : { icon: '🏃', gradient: 'from-[#0ef9b4] to-[#0dd9a0]' };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 pb-20 md:pb-0">
       <Navbar />
+      <BottomNav />
       
       {/* Hero Image Section */}
       <div className="relative w-full h-96 md:h-[500px] overflow-hidden">
+        {/* Back button */}
+        <Link
+          href="/events"
+          className="absolute top-4 left-4 z-10 flex items-center gap-2 px-4 py-2 bg-black/40 hover:bg-black/60 text-white rounded-xl font-medium transition-colors backdrop-blur-sm md:top-6 md:left-6"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to Events
+        </Link>
         {event.image_url || event.cover_image_url ? (
           <>
             <img 

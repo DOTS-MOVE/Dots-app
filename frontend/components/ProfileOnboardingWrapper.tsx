@@ -6,7 +6,7 @@ import ProfileOnboarding from './ProfileOnboarding';
 import { calculateProfileCompletion } from '@/lib/profileCompletion';
 
 export default function ProfileOnboardingWrapper({ children }: { children: React.ReactNode }) {
-  const { user, loading, refreshUser } = useAuth();
+  const { user, userFromApi, loading, refreshUser } = useAuth();
   const pathname = usePathname();
 
   // Don't show onboarding on auth pages
@@ -23,18 +23,19 @@ export default function ProfileOnboardingWrapper({ children }: { children: React
     return <>{children}</>;
   }
 
-  // If profile_completed is true, never show onboarding (trust DB over transient failures)
-  const hasCompletedOnboarding = user.profile_completed === true;
-  if (hasCompletedOnboarding) {
+  // Only check users table - never trigger onboarding when using fallback (API failed)
+  if (!userFromApi) {
     return <>{children}</>;
   }
+
+  // If profile_completed is true in users table, don't show onboarding
+  if (user.profile_completed === true) {
+    return <>{children}</>;
+  }
+
+  // Profile incomplete - show onboarding
   const profileCompletion = calculateProfileCompletion(user);
   const shouldShowOnboarding = profileCompletion && !profileCompletion.isComplete;
-
-  // Show onboarding if:
-  // 1. User is logged in
-  // 2. User hasn't explicitly completed onboarding (profile_completed is false/null)
-  // 3. Profile is less than 80% complete
   if (shouldShowOnboarding) {
     return (
       <ProfileOnboarding

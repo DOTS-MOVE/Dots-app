@@ -21,27 +21,34 @@ export default function GroupSettingsPage() {
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    loadGroup();
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    loadGroup(signal).finally(() => {
+      if (!signal.aborted) setLoading(false);
+    });
+
+    return () => controller.abort();
   }, [user, groupId]);
 
-  const loadGroup = async () => {
+  const loadGroup = async (signal?: AbortSignal) => {
     try {
-      const data = await api.getGroup(groupId);
+      const data = await api.getGroup(groupId, { signal });
+      if (signal?.aborted) return;
       setGroup(data);
       setFormData({ name: data.name, description: data.description || '' });
       setIsAdmin(data.members?.find(m => m.id === user?.id)?.is_admin || false);
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
       console.error('Failed to load group:', error);
       router.push('/messages');
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleUpdate = async () => {
     try {
       await api.updateGroup(groupId, formData);
-      await loadGroup();
+      await loadGroup(undefined);
       setEditing(false);
     } catch (error: any) {
       alert(error.message || 'Failed to update group');
@@ -62,7 +69,7 @@ export default function GroupSettingsPage() {
     if (!confirm(`Remove ${userName} from the group?`)) return;
     try {
       await api.removeGroupMember(groupId, userId);
-      await loadGroup();
+      await loadGroup(undefined);
     } catch (error: any) {
       alert(error.message || 'Failed to remove member');
     }

@@ -35,21 +35,31 @@ function MessagesPageContent() {
   const emojiPickerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    loadConversations();
-    
-    // Check URL params for conversation
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    loadConversations(signal).finally(() => {
+      if (!signal.aborted) setLoading(false);
+    });
+
     const convId = searchParams?.get('id');
     const convType = searchParams?.get('type') as 'user' | 'event' | 'group' | null;
     if (convId && convType) {
       setSelectedConversation(parseInt(convId));
       setConversationType(convType);
     }
+
+    return () => controller.abort();
   }, [user, searchParams]);
 
   useEffect(() => {
-    if (selectedConversation) {
-      loadMessages();
-    }
+    if (!selectedConversation) return;
+    const controller = new AbortController();
+    const signal = controller.signal;
+
+    loadMessages(signal);
+
+    return () => controller.abort();
   }, [selectedConversation, conversationType]);
 
   useEffect(() => {
@@ -60,26 +70,27 @@ function MessagesPageContent() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const loadConversations = async () => {
+  const loadConversations = async (signal?: AbortSignal) => {
     try {
-      const data = await api.getConversations();
+      const data = await api.getConversations({ signal });
+      if (signal?.aborted) return;
       setConversations(data);
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
       console.error('Failed to load conversations:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
-  const loadMessages = async () => {
+  const loadMessages = async (signal?: AbortSignal) => {
     if (!selectedConversation) return;
     try {
-      const data = await api.getConversation(selectedConversation, conversationType);
+      const data = await api.getConversation(selectedConversation, conversationType, { signal });
+      if (signal?.aborted) return;
       setMessages(data);
-      // Mark as read and reload conversations to update unread counts
       await api.markConversationRead(selectedConversation, conversationType);
       await loadConversations();
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') return;
       console.error('Failed to load messages:', error);
     }
   };

@@ -33,6 +33,10 @@ function BuddiesPageContent() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
+    const signal = controller.signal;
+    let cancelled = false;
+
     const tab = searchParams?.get('tab');
     const newTab = tab === 'pending' ? 'pending' : tab === 'buddies' ? 'buddies' : 'discover';
     setActiveTab(newTab);
@@ -43,34 +47,45 @@ function BuddiesPageContent() {
       return;
     }
 
-    loadData(true, newTab);
+    loadData(true, newTab, signal).finally(() => {
+      if (!cancelled) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [user, searchParams]);
 
-  const loadData = async (reset = false, tabOverride?: 'discover' | 'pending' | 'buddies') => {
+  const loadData = async (reset = false, tabOverride?: 'discover' | 'pending' | 'buddies', signal?: AbortSignal) => {
     const effectiveTab = tabOverride ?? activeTab;
     try {
       setLoadError(null);
       setDiscoveryDisabled(false);
       const promises: [Promise<any[]>, Promise<any[] | any>] = [
-        api.getBuddies(),
-        effectiveTab === 'discover' ? fetchSuggestedBuddies(reset) : Promise.resolve([]),
+        api.getBuddies(undefined, { signal }),
+        effectiveTab === 'discover' ? fetchSuggestedBuddies(reset, signal) : Promise.resolve([]),
       ];
 
-      // Use allSettled so one timeout doesn't fail the entire load - show whatever succeeded
       const [buddiesResult, suggestedResult] = await Promise.allSettled(promises);
+      if (signal?.aborted) return;
       const buddiesData = buddiesResult.status === 'fulfilled' ? buddiesResult.value : [];
       const suggestedData = suggestedResult.status === 'fulfilled' ? suggestedResult.value : [];
-      if (buddiesResult.status === 'rejected') {
+      if (buddiesResult.status === 'rejected' && buddiesResult.reason?.name !== 'AbortError') {
         console.error('Failed to load buddies:', buddiesResult.reason);
         setLoadError(buddiesResult.reason?.message || 'Failed to load buddies. Please try again.');
       }
-      if (suggestedResult.status === 'rejected') {
+      if (suggestedResult.status === 'rejected' && suggestedResult.reason?.name !== 'AbortError') {
         const msg = (suggestedResult.reason?.message || '').toLowerCase();
         if (msg.includes('enable discovery') || msg.includes('discovery')) {
           setDiscoveryDisabled(true);
         }
       }
 
+      if (signal?.aborted) return;
       setBuddies(Array.isArray(buddiesData) ? buddiesData : []);
       const suggestedList = Array.isArray(suggestedData) ? suggestedData : [];
       if (reset) {
@@ -83,18 +98,17 @@ function BuddiesPageContent() {
         setHasMore(suggestedList.length >= 10);
       }
     } catch (error: any) {
+      if (error?.name === 'AbortError') return;
       console.error('Failed to load buddies:', error);
       setLoadError(error?.message || 'Failed to load buddies. Please try again.');
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
     }
   };
 
-  const fetchSuggestedBuddies = async (reset: boolean): Promise<any[]> => {
+  const fetchSuggestedBuddies = async (reset: boolean, signal?: AbortSignal): Promise<any[]> => {
     try {
-      return await api.getSuggestedBuddies(10, 0, reset ? 0 : suggested.length);
+      return await api.getSuggestedBuddies(10, 0, reset ? 0 : suggested.length, { signal });
     } catch (error: any) {
+      if (error?.name === 'AbortError') return [];
       const msg = (error?.message || '').toLowerCase();
       if (msg.includes('enable discovery') || msg.includes('discovery')) {
         setDiscoveryDisabled(true);

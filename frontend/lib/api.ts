@@ -51,6 +51,10 @@ export class ApiClient {
       
       return session?.access_token || null;
     } catch (error: any) {
+      // AbortError: getSession/refresh was cancelled (e.g. navigation, unmount) - treat as no token
+      if (error?.name === 'AbortError' || (error?.message ?? '').toLowerCase().includes('aborted')) {
+        return null;
+      }
       console.error('Failed to get token:', error);
       
       // If it's already our custom error, re-throw it
@@ -84,79 +88,58 @@ export class ApiClient {
     return { access_token: 'mock_token', token_type: 'bearer' };
   }
 
-  // Users
-  async getCurrentUser(): Promise<User> {
-    const token = await this.getToken();
+  // Users - Uses Promise.race for timeout (no AbortController) to avoid "signal is aborted" errors
+  async getCurrentUser(accessToken?: string | null): Promise<User> {
+    const token = accessToken ?? (await this.getToken());
     if (!token) {
       throw new Error('Not authenticated');
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    const timeoutMs = 8000; // 8s - fast fallback for login
+    const fetchPromise = fetch(`${this.baseUrl}/users/me`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
+    );
 
     try {
-      const response = await fetch(`${this.baseUrl}/users/me`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch user profile');
-      }
-
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
+      if (!response.ok) throw new Error('Failed to fetch user profile');
       return response.json();
-    } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw new Error('Request timeout - please check your connection');
+    } catch (e: any) {
+      if (e?.name === 'AbortError') {
+        throw new Error('Request timeout');
       }
-          if (error.message === 'Failed to fetch' || error.message.includes('fetch')) {
-            // Backend not available - throw error with user-friendly message
-            console.warn('Backend not available for getCurrentUser:', this.baseUrl);
-            throw new Error('Unable to connect to the server. Please check your connection.');
-          }
-      // Re-throw other errors
-      throw error;
+      if (e?.message === 'Failed to fetch' || e?.message?.includes('fetch')) {
+        throw new Error('Unable to connect to the server. Please check your connection.');
+      }
+      throw e;
     }
   }
 
-  async getUser(userId: number): Promise<User> {
+  async getUser(userId: number, opts?: { signal?: AbortSignal }): Promise<User> {
     const token = await this.getToken();
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
+    const headers: HeadersInit = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-
+    const fetchPromise = fetch(`${this.baseUrl}/users/${userId}`, { headers, signal: opts?.signal });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), 15000)
+    );
     try {
-      const response = await fetch(`${this.baseUrl}/users/${userId}`, {
-        headers,
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Failed to fetch user' }));
         throw new Error(errorData.detail || 'Failed to fetch user');
       }
       return response.json();
     } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw new Error('Request timeout - please check your connection');
+      if (error?.name === 'AbortError') throw error;
+      if (error?.message === 'Failed to fetch' || error?.message?.includes('fetch')) {
+        throw new Error('Unable to connect to the server. Please check your connection.');
       }
-          if (error.message === 'Failed to fetch' || error.message.includes('fetch')) {
-            throw new Error('Unable to connect to the server. Please check your connection.');
-          }
       throw error;
     }
   }
@@ -337,72 +320,60 @@ export class ApiClient {
     }
   }
 
-  // Events
+  // Events - Promise.race for timeout (no AbortController)
   async getEvents(params?: { sport_id?: number; location?: string; search?: string }): Promise<Event[]> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const queryParams = new URLSearchParams();
+    if (params?.sport_id) queryParams.append('sport_id', params.sport_id.toString());
+    if (params?.location) queryParams.append('location', params.location);
+    if (params?.search) queryParams.append('search', params.search);
+    const queryString = queryParams.toString();
+    const url = `${this.baseUrl}/events${queryString ? `?${queryString}` : ''}`;
+
+    const fetchPromise = fetch(url, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), 10000)
+    );
 
     try {
-      const queryParams = new URLSearchParams();
-      if (params?.sport_id) {
-        queryParams.append('sport_id', params.sport_id.toString());
-      }
-      if (params?.location) {
-        queryParams.append('location', params.location);
-      }
-      if (params?.search) {
-        queryParams.append('search', params.search);
-      }
-
-      const queryString = queryParams.toString();
-      const url = `${this.baseUrl}/events${queryString ? `?${queryString}` : ''}`;
-      
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Failed to fetch events');
-        console.error('getEvents error:', errorText);
         throw new Error(errorText || 'Failed to fetch events');
       }
-
       return response.json();
     } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw new Error('Request timeout - please check your connection');
-      }
-      if (error.message === 'Failed to fetch' || error.message.includes('fetch')) {
+      if (error.message === 'Failed to fetch' || error.message?.includes('fetch')) {
         console.warn('Backend not available for getEvents, returning empty array');
         return [];
       }
-      console.error('getEvents error:', error);
+      if (error.message === 'Request timeout') {
+        console.warn('getEvents timeout');
+        return [];
+      }
       throw error;
     }
   }
 
-  async getEvent(eventId: number): Promise<Event> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+  async getEvent(eventId: number, opts?: { signal?: AbortSignal }): Promise<Event> {
     const token = await this.getToken();
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    const fetchPromise = fetch(`${this.baseUrl}/events/${eventId}`, {
+      method: 'GET',
+      headers,
+      signal: opts?.signal,
+    });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), 10000)
+    );
 
     try {
-      const response = await fetch(`${this.baseUrl}/events/${eventId}`, {
-        method: 'GET',
-        headers,
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Failed to fetch event');
@@ -412,15 +383,11 @@ export class ApiClient {
 
       return response.json();
     } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw new Error('Request timeout - please check your connection');
-      }
-      if (error.message === 'Failed to fetch' || error.message.includes('fetch')) {
-        console.warn('Backend not available for getEvent');
+      if (error?.name === 'AbortError') throw error;
+      if (error?.message === 'Request timeout') throw new Error('Request timeout - please check your connection');
+      if (error?.message === 'Failed to fetch' || error?.message?.includes?.('fetch')) {
         throw new Error('Failed to fetch event');
       }
-      console.error('getEvent error:', error);
       throw error;
     }
   }
@@ -738,34 +705,33 @@ export class ApiClient {
   }
 
   // Buddies
-  async getSuggestedBuddies(limit = 10, minScore = 30, offset = 0): Promise<any[]> {
+  async getSuggestedBuddies(limit = 10, minScore = 30, offset = 0, opts?: { signal?: AbortSignal }): Promise<any[]> {
     const token = await this.getToken();
-    if (!token) {
-      throw new Error('Not authenticated');
-    }
+    if (!token) return [];
+    if (opts?.signal?.aborted) return [];
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const queryParams = new URLSearchParams();
+    queryParams.append('limit', limit.toString());
+    queryParams.append('min_score', minScore.toString());
+    queryParams.append('offset', offset.toString());
+
+    const fetchPromise = fetch(`${this.baseUrl}/buddies/suggested?${queryParams.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      signal: opts?.signal,
+    });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), 15000)
+    );
 
     try {
-      const queryParams = new URLSearchParams();
-      queryParams.append('limit', limit.toString());
-      queryParams.append('min_score', minScore.toString());
-      queryParams.append('offset', offset.toString());
-
-      const response = await fetch(`${this.baseUrl}/buddies/suggested?${queryParams.toString()}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (!response.ok) {
-        const errorText = await response.text().catch(() => 'Failed to fetch suggested buddies');
+        const errorText = await response.text().catch(() => '');
         let detail = 'Failed to fetch suggested buddies';
         try {
           const errJson = JSON.parse(errorText);
@@ -774,51 +740,47 @@ export class ApiClient {
           detail = errorText || detail;
         }
         const detailStr = typeof detail === 'string' ? detail : JSON.stringify(detail);
-        if (response.status === 403 && detailStr.toLowerCase().includes('discovery')) {
+        const detailLower = detailStr.toLowerCase();
+        if (
+          response.status === 401 ||
+          response.status === 403 ||
+          response.status >= 500 ||
+          detailLower.includes('discovery') ||
+          detailLower.includes('server disconnected') ||
+          detailLower.includes('authentication failed')
+        ) {
           return [];
         }
-        console.error('getSuggestedBuddies error:', detailStr);
         throw new Error(detailStr);
       }
 
       return response.json();
     } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw new Error('Request timeout - please check your connection');
-      }
-      if (error.message === 'Failed to fetch' || error.message.includes('fetch')) {
-        console.warn('Backend not available for getSuggestedBuddies, returning empty array');
-        return [];
-      }
-      console.error('getSuggestedBuddies error:', error);
+      if (error?.name === 'AbortError') return [];
+      if (error?.message === 'Request timeout') return [];
+      if (error?.message === 'Failed to fetch' || error?.message?.includes?.('fetch')) return [];
       throw error;
     }
   }
 
-  async getBuddies(status?: string): Promise<Buddy[]> {
+  async getBuddies(status?: string, opts?: { signal?: AbortSignal }): Promise<Buddy[]> {
     const token = await this.getToken();
     if (!token) {
       throw new Error('Not authenticated');
     }
+    if (opts?.signal?.aborted) return [];
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
-
+    let url = `${this.baseUrl}/buddies`;
+    if (status) url += `?status=${status}`;
+    const fetchPromise = fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` },
+      signal: opts?.signal,
+    });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), 10000)
+    );
     try {
-      let url = `${this.baseUrl}/buddies`;
-      if (status) {
-        url += `?status=${status}`;
-      }
-
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');
@@ -837,13 +799,9 @@ export class ApiClient {
 
       return response.json();
     } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw new Error('Request timeout - please check your connection');
-      }
-      if (error.message === 'Failed to fetch' || error.message?.includes('fetch')) {
-        return [];
-      }
+      if (error?.name === 'AbortError') return [];
+      if (error?.message === 'Request timeout') return [];
+      if (error?.message === 'Failed to fetch' || error?.message?.includes('fetch')) return [];
       throw error;
     }
   }
@@ -970,27 +928,40 @@ export class ApiClient {
     }
   }
 
-  // Messages
-  async getConversations(): Promise<Conversation[]> {
-    const token = await this.getToken();
-    if (!token) {
-      throw new Error('Not authenticated');
-    }
+  // Messages - single-flight when no signal; direct fetch with signal for abort-on-navigate
+  private _conversationsPromise: Promise<Conversation[]> | null = null;
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+  async getConversations(opts?: { signal?: AbortSignal }): Promise<Conversation[]> {
+    if (opts?.signal) return this._fetchConversations(opts.signal);
+    if (this._conversationsPromise) return this._conversationsPromise;
+
+    this._conversationsPromise = this._fetchConversations();
+    try {
+      return await this._conversationsPromise;
+    } finally {
+      this._conversationsPromise = null;
+    }
+  }
+
+  private async _fetchConversations(signal?: AbortSignal): Promise<Conversation[]> {
+    const token = await this.getToken();
+    if (!token) throw new Error('Not authenticated');
+    if (signal?.aborted) return [];
+
+    const fetchPromise = fetch(`${this.baseUrl}/messages/conversations`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      signal,
+    });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), 15000)
+    );
 
     try {
-      const response = await fetch(`${this.baseUrl}/messages/conversations`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => '');
@@ -1010,63 +981,48 @@ export class ApiClient {
 
       return response.json();
     } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw new Error('Request timeout - please check your connection');
-      }
-      if (error.message === 'Failed to fetch' || error.message?.includes('fetch')) {
-        return [];
-      }
+      if (error?.name === 'AbortError') return [];
+      if (error.message === 'Request timeout') return [];
+      if (error.message === 'Failed to fetch' || error.message?.includes('fetch')) return [];
       throw error;
     }
   }
 
-  async getConversation(conversationId: number, type: 'user' | 'event' | 'group' = 'user'): Promise<Message[]> {
+  async getConversation(conversationId: number, type: 'user' | 'event' | 'group' = 'user', opts?: { signal?: AbortSignal }): Promise<Message[]> {
     const token = await this.getToken();
-    if (!token) {
-      throw new Error('Not authenticated');
-    }
+    if (!token) throw new Error('Not authenticated');
+    if (opts?.signal?.aborted) return [];
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const queryParams = new URLSearchParams();
+    queryParams.append('conversation_type', type);
+
+    const fetchPromise = fetch(`${this.baseUrl}/messages/conversations/${conversationId}?${queryParams.toString()}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      signal: opts?.signal,
+    });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), 10000)
+    );
 
     try {
-      const queryParams = new URLSearchParams();
-      queryParams.append('conversation_type', type);
-
-      const response = await fetch(`${this.baseUrl}/messages/conversations/${conversationId}?${queryParams.toString()}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Failed to fetch conversation');
-        console.error('getConversation error:', errorText);
         throw new Error(errorText || 'Failed to fetch conversation');
       }
 
-      // Mark messages as read after fetching them
-      this.markConversationRead(conversationId, type).catch(err => {
-        console.warn('Failed to mark conversation as read:', err);
-      });
+      this.markConversationRead(conversationId, type).catch(() => {});
 
       return response.json();
     } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw new Error('Request timeout - please check your connection');
-      }
-      if (error.message === 'Failed to fetch' || error.message.includes('fetch')) {
-        console.warn('Backend not available for getConversation, returning empty array');
-        return [];
-      }
-      console.error('getConversation error:', error);
+      if (error?.name === 'AbortError') return [];
+      if (error?.message === 'Request timeout') return [];
+      if (error?.message === 'Failed to fetch' || error?.message?.includes?.('fetch')) return [];
       throw error;
     }
   }
@@ -1186,44 +1142,38 @@ export class ApiClient {
     }
   }
 
-  async getGroup(groupId: number): Promise<GroupChat> {
+  async getGroup(groupId: number, opts?: { signal?: AbortSignal }): Promise<GroupChat> {
     const token = await this.getToken();
-    if (!token) {
-      throw new Error('Not authenticated');
-    }
+    if (!token) throw new Error('Not authenticated');
+    if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const fetchPromise = fetch(`${this.baseUrl}/groups/${groupId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      signal: opts?.signal,
+    });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), 10000)
+    );
 
     try {
-      const response = await fetch(`${this.baseUrl}/groups/${groupId}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Failed to fetch group');
-        console.error('getGroup error:', errorText);
         throw new Error(errorText || 'Failed to fetch group');
       }
 
       return response.json();
     } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw new Error('Request timeout - please check your connection');
-      }
-      if (error.message === 'Failed to fetch' || error.message.includes('fetch')) {
-        console.warn('Backend not available for getGroup');
+      if (error?.name === 'AbortError') throw error;
+      if (error?.message === 'Request timeout') throw new Error('Request timeout - please check your connection');
+      if (error?.message === 'Failed to fetch' || error?.message?.includes?.('fetch')) {
         throw new Error('Failed to fetch group');
       }
-      console.error('getGroup error:', error);
       throw error;
     }
   }
@@ -1411,64 +1361,46 @@ export class ApiClient {
     }
   }
 
-  // Sports & Goals
+  // Sports & Goals - Promise.race for timeout (no AbortController)
   async getSports(): Promise<Sport[]> {
-    // Try to fetch from API first, fallback to mock data
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-      
-      const response = await fetch(`${this.baseUrl}/sports`, {
-        signal: controller.signal,
-      });
-      
-      clearTimeout(timeoutId);
-      
+      const fetchPromise = fetch(`${this.baseUrl}/sports`);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout')), 8000)
+      );
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
       if (response.ok) {
         const data = await response.json();
         return data || [];
       }
     } catch (error: any) {
-      if (error.name === 'AbortError') {
-        console.warn('Request timeout for sports');
-      } else if (error.message === 'Failed to fetch' || error.message.includes('fetch')) {
-        console.warn('Backend not available for sports, returning empty array');
-        return [];
-      } else {
-        console.warn('Failed to fetch sports:', error);
+      if (error.message === 'Failed to fetch' || error.message?.includes('fetch')) {
+        console.warn('Backend not available for sports');
+      } else if (error.message === 'Request timeout') {
+        console.warn('Sports request timeout');
       }
     }
-    // Return empty array instead of mock data
     return [];
   }
 
   async getGoals(): Promise<Goal[]> {
-    // Try to fetch from API first, fallback to mock data
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-      
-      const response = await fetch(`${this.baseUrl}/goals`, {
-        signal: controller.signal,
-      });
-      
-      clearTimeout(timeoutId);
-      
+      const fetchPromise = fetch(`${this.baseUrl}/goals`);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout')), 8000)
+      );
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
       if (response.ok) {
         const data = await response.json();
         return data || [];
       }
     } catch (error: any) {
-      if (error.name === 'AbortError') {
-        console.warn('Request timeout for goals');
-      } else if (error.message === 'Failed to fetch' || error.message.includes('fetch')) {
-        console.warn('Backend not available for goals, returning empty array');
-        return [];
-      } else {
-        console.warn('Failed to fetch goals:', error);
+      if (error.message === 'Failed to fetch' || error.message?.includes('fetch')) {
+        console.warn('Backend not available for goals');
+      } else if (error.message === 'Request timeout') {
+        console.warn('Goals request timeout');
       }
     }
-    // Return empty array instead of mock data
     return [];
   }
 
@@ -1496,50 +1428,31 @@ export class ApiClient {
   }
 
   // Posts
-  async getPosts(userId?: number, limit = 20, offset = 0): Promise<Post[]> {
+  async getPosts(userId?: number, limit = 20, offset = 0, opts?: { signal?: AbortSignal }): Promise<Post[]> {
     const token = await this.getToken();
-    const headers: HeadersInit = {
-      'Content-Type': 'application/json',
-    };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
+    const headers: HeadersInit = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (opts?.signal?.aborted) return [];
 
     const params = new URLSearchParams();
     if (userId) params.append('user_id', userId.toString());
     params.append('limit', limit.toString());
     params.append('offset', offset.toString());
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-
+    const fetchPromise = fetch(`${this.baseUrl}/posts?${params}`, { headers, signal: opts?.signal });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), 15000)
+    );
     try {
-      const response = await fetch(`${this.baseUrl}/posts?${params}`, {
-        headers,
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Failed to fetch posts');
-        console.error('getPosts error response:', errorText);
         throw new Error(errorText || 'Failed to fetch posts');
       }
-
       return response.json();
     } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw new Error('Request timeout - please check your connection');
-      }
-      if (error.message === 'Failed to fetch' || error.message.includes('fetch')) {
-        // Backend is not running - return empty array instead of throwing
-        // This allows the UI to still render with empty data
-        console.warn('Backend not available, returning empty data:', this.baseUrl);
-        return [];
-      }
-      console.error('getPosts error:', error);
+      if (error?.name === 'AbortError') return [];
+      if (error?.message === 'Failed to fetch' || error?.message?.includes('fetch')) return [];
       throw error;
     }
   }
@@ -1607,45 +1520,33 @@ export class ApiClient {
   }
 
   // User Events
-  async getMyEvents(): Promise<{ owned: Event[]; attending: Event[]; attended: Event[] }> {
+  async getMyEvents(opts?: { signal?: AbortSignal }): Promise<{ owned: Event[]; attending: Event[]; attended: Event[] }> {
     const token = await this.getToken();
-    if (!token) {
-      throw new Error('Not authenticated');
-    }
+    if (!token) throw new Error('Not authenticated');
+    if (opts?.signal?.aborted) return { owned: [], attending: [], attended: [] };
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-
+    const fetchPromise = fetch(`${this.baseUrl}/events/user/me`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      signal: opts?.signal,
+    });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), 15000)
+    );
     try {
-      const response = await fetch(`${this.baseUrl}/events/user/me`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
+      const response = await Promise.race([fetchPromise, timeoutPromise]);
       if (!response.ok) {
         const errorText = await response.text().catch(() => 'Failed to fetch user events');
-        console.error('getMyEvents error:', errorText);
         throw new Error(errorText || 'Failed to fetch user events');
       }
-
       return response.json();
     } catch (error: any) {
-      clearTimeout(timeoutId);
-      if (error.name === 'AbortError') {
-        throw new Error('Request timeout - please check your connection');
-      }
-      if (error.message === 'Failed to fetch' || error.message.includes('fetch')) {
-        // Backend is not running - return empty events object instead of throwing
-        // This allows the UI to still render with empty data
-        console.warn('Backend not available, returning empty events:', this.baseUrl);
+      if (error?.name === 'AbortError') return { owned: [], attending: [], attended: [] };
+      if (error?.message === 'Failed to fetch' || error?.message?.includes('fetch')) {
         return { owned: [], attending: [], attended: [] };
       }
-      console.error('getMyEvents error:', error);
       throw error;
     }
   }

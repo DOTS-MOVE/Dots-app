@@ -200,89 +200,92 @@ async def list_events(
                   search_lower in (e.get("description") or "").lower() or
                   search_lower in (e.get("location") or "").lower()]
     
+    if not events:
+        return []
+    
+    event_ids = [e["id"] for e in events if e.get("id") is not None]
+    sport_ids = list({e.get("sport_id") for e in events if e.get("sport_id") is not None})
+    host_ids = list({e.get("host_id") for e in events if e.get("host_id") is not None})
+    
+    rsvps_by_event = {}
+    sports_by_id = {}
+    hosts_by_id = {}
+    
+    if event_ids:
+        try:
+            rsvps_result = supabase.table("event_rsvps").select("event_id, user_id, status").in_("event_id", event_ids).execute()
+            for r in (rsvps_result.data or []):
+                eid = r.get("event_id")
+                if eid not in rsvps_by_event:
+                    rsvps_by_event[eid] = {"approved": [], "pending": 0}
+                if r.get("status") == "approved":
+                    rsvps_by_event[eid]["approved"].append(r.get("user_id"))
+                elif r.get("status") == "pending":
+                    rsvps_by_event[eid]["pending"] += 1
+        except Exception:
+            pass
+    
+    if sport_ids:
+        try:
+            sports_result = supabase.table("sports").select("id, name, icon").in_("id", sport_ids).execute()
+            for s in (sports_result.data or []):
+                sports_by_id[s["id"]] = {"id": s.get("id"), "name": s.get("name") or "Unknown Sport", "icon": s.get("icon") or "🏃"}
+        except Exception:
+            pass
+    
+    if host_ids:
+        try:
+            users_result = supabase.table("users").select("id, full_name, avatar_url").in_("id", host_ids).execute()
+            for u in (users_result.data or []):
+                hosts_by_id[u["id"]] = {"id": u.get("id"), "full_name": u.get("full_name") or "Unknown", "avatar_url": u.get("avatar_url")}
+        except Exception:
+            pass
+    
     result = []
     for event in events:
         event_id = event.get("id")
-        if not event_id:
+        if event_id is None:
             continue
-        
-        # Get participant count (approved RSVPs excluding host)
-        participant_count = 0
         host_id = event.get("host_id")
+        sport_id = event.get("sport_id")
+        
+        rsvps = rsvps_by_event.get(event_id, {"approved": [], "pending": 0})
+        participant_count = len([uid for uid in rsvps["approved"] if uid != host_id])
+        pending_count = rsvps["pending"]
+        
+        sport_data = sports_by_id.get(sport_id) if sport_id is not None else None
+        if sport_data is None and sport_id is not None:
+            sport_data = {"id": sport_id, "name": "Unknown Sport", "icon": "🏃"}
+        
+        host_data = hosts_by_id.get(host_id) if host_id is not None else None
+        if host_data is None and host_id is not None:
+            host_data = {"id": host_id, "full_name": "Unknown", "avatar_url": None}
+        
         try:
-            participant_result = supabase.table("event_rsvps").select("user_id").eq("event_id", event_id).eq("status", "approved").execute()
-            if participant_result.data:
-                # Count participants excluding the host
-                participants = [r for r in participant_result.data if r.get("user_id") != host_id]
-                participant_count = len(participants)
-        except Exception:
-            participant_count = 0
-        
-        # Get pending count
-        pending_count = 0
-        try:
-            pending_result = supabase.table("event_rsvps").select("id", count="exact").eq("event_id", event_id).eq("status", "pending").execute()
-            pending_count = pending_result.count if pending_result.count is not None else 0
-        except Exception:
-            pending_count = 0
-        
-        # Get sport info
-        sport_data = None
-        if event.get("sport_id"):
-            try:
-                sport_result = supabase.table("sports").select("*").eq("id", event["sport_id"]).single().execute()
-                if sport_result.data:
-                    sport_data = {
-                        "id": sport_result.data.get("id"),
-                        "name": sport_result.data.get("name") or "Unknown Sport",
-                        "icon": sport_result.data.get("icon") or "🏃"
-                    }
-            except Exception:
-                sport_data = {
-                    "id": event.get("sport_id"),
-                    "name": "Unknown Sport",
-                    "icon": "🏃"
-                }
-        
-        # Get host info
-        host_data = None
-        if host_id:
-            try:
-                host_result = supabase.table("users").select("id, full_name, avatar_url").eq("id", host_id).single().execute()
-                if host_result.data:
-                    host_data = {
-                        "id": host_result.data.get("id"),
-                        "full_name": host_result.data.get("full_name") or "Unknown",
-                        "avatar_url": host_result.data.get("avatar_url")
-                    }
-            except Exception:
-                host_data = {
-                    "id": host_id,
-                    "full_name": "Unknown",
-                    "avatar_url": None
-                }
-        
-        result.append(EventResponse(
-            id=event["id"],
-            title=event["title"],
-            description=event.get("description"),
-            location=event.get("location"),
-            start_time=event["start_time"],
-            end_time=event.get("end_time"),
-            sport_id=event.get("sport_id"),
-            host_id=event.get("host_id"),
-            max_participants=event.get("max_participants"),
-            is_cancelled=event.get("is_cancelled", False),
-            is_public=event.get("is_public", True),
-            image_url=event.get("image_url"),
-            cover_image_url=event.get("cover_image_url"),
-            created_at=event.get("created_at"),
-            updated_at=event.get("updated_at"),
-            participant_count=participant_count,
-            pending_requests_count=pending_count,
-            sport=sport_data,
-            host=host_data
-        ))
+            result.append(EventResponse(
+                id=event["id"],
+                title=event["title"],
+                description=event.get("description"),
+                location=event.get("location"),
+                start_time=event["start_time"],
+                end_time=event.get("end_time"),
+                sport_id=sport_id,
+                host_id=host_id,
+                max_participants=event.get("max_participants"),
+                is_cancelled=event.get("is_cancelled", False),
+                is_public=event.get("is_public", True),
+                image_url=event.get("image_url"),
+                cover_image_url=event.get("cover_image_url"),
+                created_at=event.get("created_at"),
+                updated_at=event.get("updated_at"),
+                participant_count=participant_count,
+                pending_requests_count=pending_count,
+                sport=sport_data,
+                host=host_data
+            ))
+        except Exception as e:
+            # Skip event on validation error, don't fail entire response
+            continue
     
     return result
 
@@ -358,6 +361,16 @@ async def get_event(
                 }
         except Exception:
             sport_data = {"id": event.get("sport_id"), "name": "Unknown Sport", "icon": "🏃"}
+    
+    # Get current user's RSVP status (when authenticated)
+    rsvp_status = None
+    if current_user and current_user.get("id"):
+        try:
+            rsvp_result = supabase.table("event_rsvps").select("status").eq("event_id", event_id).eq("user_id", current_user["id"]).maybe_single().execute()
+            if rsvp_result.data and rsvp_result.data.get("status"):
+                rsvp_status = rsvp_result.data["status"]
+        except Exception:
+            pass
     
     return EventDetail(
         id=event["id"],

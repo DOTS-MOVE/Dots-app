@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import Navbar from '@/components/Navbar';
+import BottomNav from '@/components/BottomNav';
 import { api } from '@/lib/api';
 import { Sport } from '@/types';
 import { uploadEventImage } from '@/lib/storage';
@@ -141,19 +143,30 @@ export default function CreateEventPage() {
   // Show loading while checking auth or loading sports
   if (authLoading || loading || !user) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 pb-20 md:pb-0">
         <Navbar />
         <div className="flex items-center justify-center h-64">
           <div className="text-gray-600">Loading...</div>
         </div>
+        <BottomNav />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 pb-20 md:pb-0">
       <Navbar />
+      <BottomNav />
       <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <Link
+          href="/events"
+          className="inline-flex items-center gap-2 text-gray-700 hover:text-gray-900 font-medium mb-6 transition-colors"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back to Events
+        </Link>
         <h1 className="text-3xl font-bold text-gray-900 mb-8">Create Event</h1>
         
         <form onSubmit={handleSubmit} className="bg-white shadow rounded-lg p-6 space-y-6">

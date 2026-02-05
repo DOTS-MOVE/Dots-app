@@ -42,8 +42,9 @@ class EventResponse(EventBase):
     updated_at: Optional[datetime] = None
     participant_count: int = 0
     pending_requests_count: int = 0  # For private events
+    sport: Optional[dict] = None  # Sport info (id, name, icon)
     host: Optional[dict] = None  # Host information
-    
+
     class Config:
         from_attributes = True
 

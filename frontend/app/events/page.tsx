@@ -91,7 +91,16 @@ export default function EventsPage() {
       <Navbar />
       
       {/* Hero Section */}
-      <div className="bg-gradient-to-br from-[#0ef9b4] via-[#0dd9a0] to-[#0ef9b4] pt-12 pb-16">
+      <div className="bg-gradient-to-br from-[#0ef9b4] via-[#0dd9a0] to-[#0ef9b4] pt-12 pb-16 relative">
+        <Link
+          href="/"
+          className="absolute top-4 left-4 md:top-6 md:left-6 flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-xl font-medium transition-colors backdrop-blur-sm z-10"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back
+        </Link>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
             <h1 className="text-4xl md:text-5xl font-bold text-white mb-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
