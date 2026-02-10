@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const result = await Promise.race([
             supabase.auth.getSession(),
             new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('Auth init timeout')), 15000)
+              setTimeout(() => reject(new Error('Auth init timeout')), 4000)
             ),
           ]);
           session = result.data?.session ?? null;

@@ -1,26 +1,11 @@
 import { Event, Sport, User, Buddy, GroupChat, Conversation, Goal, Message, GroupMember, Post } from '@/types';
 import { logApiEnv, logApiRequest, logApiError } from './apiDebug';
-import {
-  mockUsers,
-  mockEvents,
-  mockBuddies,
-  mockSuggestedBuddies,
-  mockConversations,
-  mockMessages,
-  mockGroupChats,
-  mockSports,
-  mockGoals,
-  currentUser,
-} from './mockData';
 import { supabase } from './supabase';
 
-// Use mock data - simulate API delays
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 export class ApiClient {
-  private localBuddies: Buddy[] = [...mockBuddies];
-  private localMessages: Message[] = [...mockMessages];
-  private localEvents: Event[] = [...mockEvents];
+  private localBuddies: Buddy[] = [];
+  private localMessages: Message[] = [];
+  private localEvents: Event[] = [];
   private rsvpEvents: Set<number> = new Set();
   private baseUrl: string = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
   private _debugLogged = false;
@@ -84,17 +69,13 @@ export class ApiClient {
     // Token is managed by Supabase, this is kept for compatibility
   }
 
-  // Auth
-  async register(email: string, password: string, fullName: string): Promise<{ access_token: string; token_type: string }> {
-    await delay(300);
-    this.setToken('mock_token');
-    return { access_token: 'mock_token', token_type: 'bearer' };
+  // Auth is handled by Supabase in lib/auth.tsx; these are unused stubs.
+  async register(_email: string, _password: string, _fullName: string): Promise<{ access_token: string; token_type: string }> {
+    throw new Error('Use the auth context (register) for sign-up.');
   }
 
-  async login(email: string, password: string): Promise<{ access_token: string; token_type: string }> {
-    await delay(300);
-    this.setToken('mock_token');
-    return { access_token: 'mock_token', token_type: 'bearer' };
+  async login(_email: string, _password: string): Promise<{ access_token: string; token_type: string }> {
+    throw new Error('Use the auth context (login) for sign-in.');
   }
 
   // Users - Uses Promise.race for timeout (no AbortController) to avoid "signal is aborted" errors

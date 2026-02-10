@@ -107,7 +107,9 @@ export default function Home() {
     }
   };
 
-  if (loading || loadingData) {
+  // Only block on data (events/sports). Don't block on auth so the shell and
+  // events can show immediately; profile banner and user-specific UI use !loading && user.
+  if (loadingData) {
     return (
       <div className="min-h-screen bg-gray-50 pb-20 md:pb-0">
         <Navbar />
@@ -148,8 +150,8 @@ export default function Home() {
     );
   }
 
-  // Check if profile is incomplete - only show if user is authenticated, profile_completed is not true, and missing essential fields
-  const profileIncomplete = user && user.profile_completed !== true && (!user.full_name || !user.location || !user.sports || user.sports.length === 0 || !user.goals || user.goals.length === 0);
+  // Only show profile completion when auth has resolved (avoid flash/wrong state)
+  const profileIncomplete = !loading && user && user.profile_completed !== true && (!user.full_name || !user.location || !user.sports || user.sports.length === 0 || !user.goals || user.goals.length === 0);
 
   // Get featured events (first 3)
   const featuredEvents = events.slice(0, 3);
