@@ -21,7 +21,7 @@ gcloud run deploy ${SERVICE_NAME} \
   --cpu 1 \
   --timeout 300 \
   --max-instances 10 \
-  --set-env-vars "DEBUG=False"
+  --update-env-vars "DEBUG=False"
 
 echo "✅ Getting service URL..."
 SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} --region ${REGION} --format 'value(status.url)')
