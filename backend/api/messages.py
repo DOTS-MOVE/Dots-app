@@ -337,51 +337,55 @@ async def list_conversations(
         )
     
     conversations = []
-    
-    # Get 1:1 conversations
+
+    # Get 1:1 conversations (batched)
     try:
-        # Get distinct user IDs from sent messages
         sent_result = supabase.table("messages").select("receiver_id").eq("sender_id", user_id).not_.is_("receiver_id", "null").execute()
         sent_user_ids = set([m.get("receiver_id") for m in (sent_result.data or []) if m.get("receiver_id")])
-        
-        # Get distinct user IDs from received messages
         received_result = supabase.table("messages").select("sender_id").eq("receiver_id", user_id).execute()
         received_user_ids = set([m.get("sender_id") for m in (received_result.data or []) if m.get("sender_id")])
-        
-        user_ids = sent_user_ids.union(received_user_ids)
-        
-        # Get conversation data for each user
-        for other_user_id in user_ids:
+        user_ids = list(sent_user_ids.union(received_user_ids))
+
+        if user_ids:
+            # Batch: all users
+            users_by_id = {}
+            users_result = supabase.table("users").select("id, full_name, avatar_url").in_("id", user_ids).execute()
+            if users_result.data:
+                users_by_id = {u["id"]: u for u in users_result.data}
+
+            # Batch: latest message per conversation (limit rows to avoid huge payloads)
+            last_msg_by_peer = {}
             try:
-                # Get user info
-                user_result = supabase.table("users").select("id, full_name, avatar_url").eq("id", other_user_id).single().execute()
-                if not user_result.data:
+                sent_msgs = supabase.table("messages").select("receiver_id, content, created_at").eq("sender_id", user_id).in_("receiver_id", user_ids).is_("event_id", "null").is_("group_id", "null").order("created_at", desc=True).limit(200).execute()
+                for m in (sent_msgs.data or []):
+                    rid = m.get("receiver_id")
+                    if rid and rid not in last_msg_by_peer:
+                        last_msg_by_peer[rid] = {"content": m.get("content"), "created_at": m.get("created_at")}
+                recv_msgs = supabase.table("messages").select("sender_id, content, created_at").eq("receiver_id", user_id).in_("sender_id", user_ids).is_("event_id", "null").is_("group_id", "null").order("created_at", desc=True).limit(200).execute()
+                for m in (recv_msgs.data or []):
+                    sid = m.get("sender_id")
+                    if sid and (sid not in last_msg_by_peer or (m.get("created_at") or "") > (last_msg_by_peer[sid].get("created_at") or "")):
+                        last_msg_by_peer[sid] = {"content": m.get("content"), "created_at": m.get("created_at")}
+            except Exception:
+                pass
+
+            # Batch: unread counts per sender
+            unread_by_sender = {uid: 0 for uid in user_ids}
+            try:
+                unread_result = supabase.table("messages").select("sender_id").eq("receiver_id", user_id).in_("sender_id", user_ids).eq("is_read", False).execute()
+                if unread_result.data:
+                    for row in unread_result.data:
+                        sid = row.get("sender_id")
+                        if sid is not None:
+                            unread_by_sender[sid] = unread_by_sender.get(sid, 0) + 1
+            except Exception:
+                pass
+
+            for other_user_id in user_ids:
+                user_data = users_by_id.get(other_user_id)
+                if not user_data:
                     continue
-                user_data = user_result.data
-                
-                # Get last message (either direction) - query both directions and get the latest
-                try:
-                    # Get messages where user is sender and other_user is receiver
-                    sent_msg_result = supabase.table("messages").select("*").eq("sender_id", user_id).eq("receiver_id", other_user_id).is_("event_id", "null").is_("group_id", "null").order("created_at", desc=True).limit(1).execute()
-                    sent_messages = sent_msg_result.data if sent_msg_result.data else []
-                    
-                    # Get messages where other_user is sender and user is receiver
-                    received_msg_result = supabase.table("messages").select("*").eq("sender_id", other_user_id).eq("receiver_id", user_id).is_("event_id", "null").is_("group_id", "null").order("created_at", desc=True).limit(1).execute()
-                    received_messages = received_msg_result.data if received_msg_result.data else []
-                    
-                    # Get the latest message
-                    all_messages = (sent_messages + received_messages)
-                    if all_messages:
-                        last_message = max(all_messages, key=lambda x: x.get("created_at", ""))
-                    else:
-                        last_message = None
-                except Exception:
-                    last_message = None
-                
-                # Get unread count
-                unread_result = supabase.table("messages").select("id", count="exact").eq("sender_id", other_user_id).eq("receiver_id", user_id).eq("is_read", False).execute()
-                unread_count = unread_result.count if unread_result.count is not None else 0
-                
+                last_message = last_msg_by_peer.get(other_user_id)
                 conversations.append({
                     "type": "user",
                     "id": other_user_id,
@@ -391,10 +395,8 @@ async def list_conversations(
                         "content": last_message.get("content") if last_message else None,
                         "created_at": last_message.get("created_at") if last_message else None
                     },
-                    "unread_count": unread_count
+                    "unread_count": unread_by_sender.get(other_user_id, 0)
                 })
-            except Exception:
-                continue
     except Exception:
         pass
     

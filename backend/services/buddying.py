@@ -16,7 +16,7 @@ def _extract_ids(items: list, key: str = "id") -> set:
         return set()
 
 
-def calculate_buddy_score(user1: dict, user2: dict, supabase: Client = None) -> float:
+def calculate_buddy_score(user1: dict, user2: dict, supabase: Client = None, event_counts: dict = None) -> float:
     """
     Calculate buddy score between two users based on:
     - Sports overlap (35%)
@@ -99,14 +99,25 @@ def calculate_buddy_score(user1: dict, user2: dict, supabase: Client = None) -> 
             score += 0.025
     
     # Activity level similarity (10%) - Based on event attendance
-    if supabase:
+    if event_counts is not None:
+        user1_events = event_counts.get(user1.get("id"), 0)
+        user2_events = event_counts.get(user2.get("id"), 0)
+        if user1_events >= 5 and user2_events >= 5:
+            score += 0.10
+        elif user1_events >= 3 and user2_events >= 3:
+            score += 0.075
+        elif user1_events <= 2 and user2_events <= 2:
+            score += 0.05
+        elif abs(user1_events - user2_events) > 10:
+            score += 0.02
+        else:
+            score += 0.05
+    elif supabase:
         try:
             user1_events_result = supabase.table("event_rsvps").select("id", count="exact").eq("user_id", user1.get("id")).eq("status", "approved").execute()
             user1_events = user1_events_result.count if user1_events_result.count is not None else 0
-            
             user2_events_result = supabase.table("event_rsvps").select("id", count="exact").eq("user_id", user2.get("id")).eq("status", "approved").execute()
             user2_events = user2_events_result.count if user2_events_result.count is not None else 0
-            
             if user1_events >= 5 and user2_events >= 5:
                 score += 0.10
             elif user1_events >= 3 and user2_events >= 3:
@@ -119,7 +130,7 @@ def calculate_buddy_score(user1: dict, user2: dict, supabase: Client = None) -> 
                 score += 0.05
         except Exception:
             score += 0.05
-    
+
     return round(score * 100, 2)  # Return as percentage
 
 
@@ -152,12 +163,11 @@ def find_potential_buddies(
     except Exception:
         pass
     
-    # Get all discoverable users except current user and existing buddies
+    # Get discoverable users (cap at 300 to keep response time reasonable)
+    fetch_limit = (limit + 20) if limit else 300
     try:
-        query = supabase.table("users").select("*").eq("is_active", True).eq("is_discoverable", True).neq("id", user_id)
-        
+        query = supabase.table("users").select("*").eq("is_active", True).eq("is_discoverable", True).neq("id", user_id).limit(fetch_limit)
         if existing_buddy_user_ids:
-            # Exclude existing buddies - Supabase doesn't support NOT IN directly, so we filter in Python
             all_users_result = query.execute()
             potential_users = [u for u in (all_users_result.data or []) if u.get("id") not in existing_buddy_user_ids]
         else:
@@ -166,36 +176,52 @@ def find_potential_buddies(
     except Exception:
         potential_users = []
     
-    # Get sports and goals for all potential users
-    for potential_user in potential_users:
-        user_id_potential = potential_user.get("id")
-        
-        # Get sports
-        try:
-            sports_result = supabase.table("user_sports").select("sport_id, sports(*)").eq("user_id", user_id_potential).execute()
-            potential_user["sports"] = []
-            if sports_result.data:
-                for item in sports_result.data:
-                    if item.get("sports"):
-                        potential_user["sports"].append(item["sports"])
-        except Exception:
-            potential_user["sports"] = []
-        
-        # Get goals
-        try:
-            goals_result = supabase.table("user_goals").select("goal_id, goals(*)").eq("user_id", user_id_potential).execute()
-            potential_user["goals"] = []
-            if goals_result.data:
-                for item in goals_result.data:
-                    if item.get("goals"):
-                        potential_user["goals"].append(item["goals"])
-        except Exception:
-            potential_user["goals"] = []
-    
-    # Calculate scores for all users (no filtering by score)
+    # Batch fetch sports and goals for all potential users
+    potential_ids = [u.get("id") for u in potential_users if u.get("id") is not None]
+    if not potential_ids:
+        return []
+
+    try:
+        sports_result = supabase.table("user_sports").select("user_id, sport_id, sports(*)").in_("user_id", potential_ids).execute()
+        sports_by_user = {}
+        for item in (sports_result.data or []):
+            uid = item.get("user_id")
+            s = item.get("sports")
+            if uid is not None and s:
+                sports_by_user.setdefault(uid, []).append(s)
+    except Exception:
+        sports_by_user = {}
+    try:
+        goals_result = supabase.table("user_goals").select("user_id, goal_id, goals(*)").in_("user_id", potential_ids).execute()
+        goals_by_user = {}
+        for item in (goals_result.data or []):
+            uid = item.get("user_id")
+            g = item.get("goals")
+            if uid is not None and g:
+                goals_by_user.setdefault(uid, []).append(g)
+    except Exception:
+        goals_by_user = {}
+
+    for u in potential_users:
+        u["sports"] = sports_by_user.get(u.get("id"), [])
+        u["goals"] = goals_by_user.get(u.get("id"), [])
+
+    # Batch fetch event counts for activity score
+    event_counts = {}
+    try:
+        rsvps_result = supabase.table("event_rsvps").select("user_id").eq("status", "approved").in_("user_id", potential_ids).execute()
+        for row in (rsvps_result.data or []):
+            uid = row.get("user_id")
+            if uid is not None:
+                event_counts[uid] = event_counts.get(uid, 0) + 1
+    except Exception:
+        pass
+
+    # Calculate scores and attach event_count for suggested list
     buddies = []
     for potential_user in potential_users:
-        score = calculate_buddy_score(user, potential_user, supabase)
+        score = calculate_buddy_score(user, potential_user, supabase, event_counts=event_counts)
+        potential_user["_event_count"] = event_counts.get(potential_user.get("id"), 0)
         buddies.append({
             "user": potential_user,
             "score": score

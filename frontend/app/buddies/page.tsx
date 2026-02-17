@@ -3,6 +3,7 @@
 export const dynamic = 'force-dynamic';
 
 import { useEffect, useState, useCallback, Suspense } from 'react';
+import useSWR from 'swr';
 import { useAuth } from '@/lib/auth';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Navbar from '@/components/Navbar';
@@ -11,6 +12,7 @@ import BuddyGrid from '@/components/BuddyGrid';
 import ConnectionMessageModal from '@/components/ConnectionMessageModal';
 import ProfileAvatar from '@/components/ProfileAvatar';
 import { BuddiesSkeleton } from '@/components/SkeletonLoader';
+import { useBuddies } from '@/lib/hooks';
 import { api } from '@/lib/api';
 import { Buddy } from '@/types';
 import Link from 'next/link';
@@ -19,10 +21,9 @@ function BuddiesPageContent() {
   const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [buddies, setBuddies] = useState<any[]>([]);
-  const [suggested, setSuggested] = useState<any[]>([]);
+  const { buddies, isLoading: isBuddiesLoading, error: buddiesError, mutate: mutateBuddies } = useBuddies();
+  const [suggestedExtra, setSuggestedExtra] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'discover' | 'pending' | 'buddies'>('discover');
   const [swipedUsers, setSwipedUsers] = useState<Set<number>>(new Set());
   const [hasMore, setHasMore] = useState(true);
@@ -32,90 +33,38 @@ function BuddiesPageContent() {
   const [discoveryDisabled, setDiscoveryDisabled] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    const signal = controller.signal;
-    let cancelled = false;
+  const { data: suggestedFirstPage = [], isLoading: isSuggestedLoading, mutate: mutateSuggested } = useSWR<any[]>(
+    user && activeTab === 'discover' ? ['suggested-buddies', user.id] : null,
+    async () => {
+      try {
+        return await api.getSuggestedBuddies(10, 0, 0);
+      } catch (e: any) {
+        const msg = (e?.message || '').toLowerCase();
+        if (msg.includes('enable discovery') || msg.includes('discovery')) setDiscoveryDisabled(true);
+        return [];
+      }
+    },
+    { revalidateOnFocus: true, dedupingInterval: 20000 }
+  );
 
+  const suggested = [...(Array.isArray(suggestedFirstPage) ? suggestedFirstPage : []), ...suggestedExtra];
+
+  useEffect(() => {
     const tab = searchParams?.get('tab');
     const newTab = tab === 'pending' ? 'pending' : tab === 'buddies' ? 'buddies' : 'discover';
     setActiveTab(newTab);
-
-    if (!user) {
-      setLoading(false);
-      setLoadError(null);
-      return;
-    }
-
-    loadData(true, newTab, signal).finally(() => {
-      if (!cancelled) {
-        setLoading(false);
-        setLoadingMore(false);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
+    if (!user) setLoadError(null);
   }, [user, searchParams]);
 
-  const loadData = async (reset = false, tabOverride?: 'discover' | 'pending' | 'buddies', signal?: AbortSignal) => {
-    const effectiveTab = tabOverride ?? activeTab;
-    try {
-      setLoadError(null);
-      setDiscoveryDisabled(false);
-      const promises: [Promise<any[]>, Promise<any[] | any>] = [
-        api.getBuddies(undefined, { signal }),
-        effectiveTab === 'discover' ? fetchSuggestedBuddies(reset, signal) : Promise.resolve([]),
-      ];
+  useEffect(() => {
+    if (buddiesError?.message && !discoveryDisabled) setLoadError(buddiesError.message);
+  }, [buddiesError, discoveryDisabled]);
 
-      const [buddiesResult, suggestedResult] = await Promise.allSettled(promises);
-      if (signal?.aborted) return;
-      const buddiesData = buddiesResult.status === 'fulfilled' ? buddiesResult.value : [];
-      const suggestedData = suggestedResult.status === 'fulfilled' ? suggestedResult.value : [];
-      if (buddiesResult.status === 'rejected' && buddiesResult.reason?.name !== 'AbortError') {
-        console.error('Failed to load buddies:', buddiesResult.reason);
-        setLoadError(buddiesResult.reason?.message || 'Failed to load buddies. Please try again.');
-      }
-      if (suggestedResult.status === 'rejected' && suggestedResult.reason?.name !== 'AbortError') {
-        const msg = (suggestedResult.reason?.message || '').toLowerCase();
-        if (msg.includes('enable discovery') || msg.includes('discovery')) {
-          setDiscoveryDisabled(true);
-        }
-      }
-
-      if (signal?.aborted) return;
-      setBuddies(Array.isArray(buddiesData) ? buddiesData : []);
-      const suggestedList = Array.isArray(suggestedData) ? suggestedData : [];
-      if (reset) {
-        setSuggested(suggestedList);
-        setCurrentIndex(0);
-        setSwipedUsers(new Set());
-        setHasMore(suggestedList.length >= 10);
-      } else {
-        setSuggested((prev) => [...prev, ...suggestedList]);
-        setHasMore(suggestedList.length >= 10);
-      }
-    } catch (error: any) {
-      if (error?.name === 'AbortError') return;
-      console.error('Failed to load buddies:', error);
-      setLoadError(error?.message || 'Failed to load buddies. Please try again.');
+  useEffect(() => {
+    if (suggestedFirstPage?.length !== undefined && suggestedExtra.length === 0) {
+      setHasMore(suggestedFirstPage.length >= 10);
     }
-  };
-
-  const fetchSuggestedBuddies = async (reset: boolean, signal?: AbortSignal): Promise<any[]> => {
-    try {
-      return await api.getSuggestedBuddies(10, 0, reset ? 0 : suggested.length, { signal });
-    } catch (error: any) {
-      if (error?.name === 'AbortError') return [];
-      const msg = (error?.message || '').toLowerCase();
-      if (msg.includes('enable discovery') || msg.includes('discovery')) {
-        setDiscoveryDisabled(true);
-      }
-      return [];
-    }
-  };
+  }, [suggestedFirstPage?.length, suggestedExtra.length]);
 
   const loadMoreBuddies = useCallback(async () => {
     if (loadingMore || !hasMore || suggested.length === 0 || discoveryDisabled) return;
@@ -128,11 +77,11 @@ function BuddiesPageContent() {
         if (fallbackBatch.length === 0) {
           setHasMore(false);
         } else {
-          setSuggested((prev) => [...prev, ...fallbackBatch]);
+          setSuggestedExtra((prev) => [...prev, ...fallbackBatch]);
           setHasMore(true);
         }
       } else {
-        setSuggested((prev) => [...prev, ...nextBatch]);
+        setSuggestedExtra((prev) => [...prev, ...nextBatch]);
         setHasMore(true);
       }
     } catch (error: any) {
@@ -146,6 +95,8 @@ function BuddiesPageContent() {
       setLoadingMore(false);
     }
   }, [loadingMore, hasMore, suggested.length, discoveryDisabled]);
+
+  const loading = !!user && ((isBuddiesLoading && buddies.length === 0) || (activeTab === 'discover' && isSuggestedLoading && suggested.length === 0));
 
   // Load more buddies when approaching the end
   useEffect(() => {
@@ -181,11 +132,12 @@ function BuddiesPageContent() {
       
       await api.createBuddy(pendingConnection.userId, message);
 
-      // Reload buddies and suggested (excludes newly connected user)
-      setTimeout(() => {
-        loadData(true, 'discover');
-      }, 500);
-      
+      mutateBuddies();
+      mutateSuggested();
+      setSuggestedExtra([]);
+      setCurrentIndex(0);
+      setSwipedUsers(new Set());
+
       setPendingConnection(null);
       setShowMessageModal(false);
     } catch (error: any) {
@@ -321,7 +273,7 @@ function BuddiesPageContent() {
       {/* Discover Tab */}
       {activeTab === 'discover' && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          {loading ? (
+          {isSuggestedLoading && suggested.length === 0 ? (
             <div className="text-center py-16 bg-white rounded-3xl shadow-lg">
               <div className="text-gray-600">Loading buddies...</div>
             </div>
@@ -470,7 +422,7 @@ function BuddiesPageContent() {
                               onClick={async () => {
                                 try {
                                   await api.updateBuddy(buddy.id, 'accepted');
-                                  await loadData();
+                                  mutateBuddies(); mutateSuggested();
                                 } catch (error: any) {
                                   alert(error.message || 'Failed to accept buddy');
                                 }
@@ -483,7 +435,7 @@ function BuddiesPageContent() {
                               onClick={async () => {
                                 try {
                                   await api.updateBuddy(buddy.id, 'rejected');
-                                  await loadData();
+                                  mutateBuddies(); mutateSuggested();
                                 } catch (error: any) {
                                   alert(error.message || 'Failed to reject buddy');
                                 }
@@ -517,7 +469,7 @@ function BuddiesPageContent() {
                             if (confirm('Cancel this buddy request?')) {
                               try {
                                 await api.deleteBuddy(buddy.id);
-                                await loadData();
+                                mutateBuddies(); mutateSuggested();
                               } catch (error: any) {
                                 alert(error.message || 'Failed to cancel request');
                               }
@@ -634,7 +586,7 @@ function BuddiesPageContent() {
                             if (confirm('Remove this buddy?')) {
                               try {
                                 await api.deleteBuddy(buddy.id);
-                                await loadData();
+                                mutateBuddies(); mutateSuggested();
                               } catch (error: any) {
                                 alert(error.message || 'Failed to remove buddy');
                               }

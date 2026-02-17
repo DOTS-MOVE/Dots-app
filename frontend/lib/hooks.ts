@@ -45,10 +45,11 @@ export function useGoals() {
   return { goals: data ?? [], isLoading, error };
 }
 
-/** Buddies - cache for tab switching */
+/** Buddies - cache for tab switching. Only fetches when user is authenticated. */
 export function useBuddies() {
+  const { user } = useAuth();
   const { data, error, isLoading, mutate } = useSWR(
-    'buddies',
+    user ? 'buddies' : null,
     () => api.getBuddies(),
     {
       revalidateOnFocus: true,

@@ -61,79 +61,87 @@ async def get_suggested_buddies(
     except Exception:
         current_user["goals"] = []
     
-    # Get all potential buddies using the service (no score filtering - show all discoverable users)
     all_buddies = find_potential_buddies(current_user, supabase, limit=None, min_score=0.0)
-    
-    # Apply offset and limit for pagination
     paginated_buddies = all_buddies[offset:offset + limit]
-    
+    if not paginated_buddies:
+        return []
+
+    user_ids = [m["user"]["id"] for m in paginated_buddies]
+
+    # Batch: recent events (last 3 per user) – one rsvps query, then group by user
+    recent_events_by_user = {uid: [] for uid in user_ids}
+    sport_ids = set()
+    try:
+        rsvps_result = supabase.table("event_rsvps").select("user_id, event_id, rsvp_at, events(*)").in_("user_id", user_ids).eq("status", "approved").order("rsvp_at", desc=True).limit(500).execute()
+        by_user = {}
+        for r in (rsvps_result.data or []):
+            uid = r.get("user_id")
+            if uid is None:
+                continue
+            if uid not in by_user:
+                by_user[uid] = []
+            ev = r.get("events")
+            if ev:
+                by_user[uid].append({"event": ev, "rsvp_at": r.get("rsvp_at")})
+                if ev.get("sport_id"):
+                    sport_ids.add(ev["sport_id"])
+        for uid, list_ in by_user.items():
+            list_.sort(key=lambda x: x["rsvp_at"] or "", reverse=True)
+            recent_events_by_user[uid] = [x["event"] for x in list_[:3]]
+    except Exception:
+        pass
+
+    # Batch: sport names for events
+    sports_by_id = {}
+    if sport_ids:
+        try:
+            sport_result = supabase.table("sports").select("id, name, icon").in_("id", list(sport_ids)).execute()
+            if sport_result.data:
+                sports_by_id = {s["id"]: {"id": s.get("id"), "name": s.get("name") or "Unknown Sport", "icon": s.get("icon") or "🏃"} for s in sport_result.data}
+        except Exception:
+            pass
+
+    # Batch: user photos
+    photos_by_user = {uid: [] for uid in user_ids}
+    try:
+        photos_result = supabase.table("user_photos").select("user_id, photo_url, display_order").in_("user_id", user_ids).order("display_order").execute()
+        for p in (photos_result.data or []):
+            uid = p.get("user_id")
+            url = p.get("photo_url")
+            if uid is not None and url:
+                photos_by_user.setdefault(uid, []).append(url)
+    except Exception:
+        pass
+
     result = []
     for m in paginated_buddies:
         user = m["user"]
-        
-        # Get recent events (last 3 events user attended/RSVPed to)
+        uid = user["id"]
+        event_count = user.get("_event_count", 0)
+        recent_raw = recent_events_by_user.get(uid, [])
         recent_events = []
-        try:
-            rsvps_result = supabase.table("event_rsvps").select("event_id, events(*)").eq("user_id", user["id"]).eq("status", "approved").order("rsvp_at", desc=True).limit(3).execute()
-            if rsvps_result.data:
-                for rsvp in rsvps_result.data:
-                    event = rsvp.get("events")
-                    if event:
-                        # Get sport info
-                        sport_data = None
-                        if event.get("sport_id"):
-                            try:
-                                sport_result = supabase.table("sports").select("*").eq("id", event["sport_id"]).single().execute()
-                                if sport_result.data:
-                                    sport_data = {
-                                        "id": sport_result.data.get("id"),
-                                        "name": sport_result.data.get("name") or "Unknown Sport",
-                                        "icon": sport_result.data.get("icon") or "🏃"
-                                    }
-                            except Exception:
-                                pass
-                        
-                        recent_events.append({
-                            "id": event.get("id"),
-                            "title": event.get("title"),
-                            "sport": sport_data,
-                            "start_time": event.get("start_time"),
-                        })
-        except Exception:
-            recent_events = []
-        
-        # Calculate badges
+        for event in recent_raw:
+            sport_data = sports_by_id.get(event.get("sport_id")) if event.get("sport_id") else None
+            recent_events.append({
+                "id": event.get("id"),
+                "title": event.get("title"),
+                "sport": sport_data,
+                "start_time": event.get("start_time"),
+            })
         badges = []
-        event_count = 0
-        try:
-            event_count_result = supabase.table("event_rsvps").select("id", count="exact").eq("user_id", user["id"]).eq("status", "approved").execute()
-            event_count = event_count_result.count if event_count_result.count is not None else 0
-        except Exception:
-            event_count = 0
-        
         if event_count >= 10:
             badges.append({"name": "Event Veteran", "icon": "🏆"})
         elif event_count >= 5:
             badges.append({"name": "Active Member", "icon": "⭐"})
         elif event_count >= 1:
             badges.append({"name": "Getting Started", "icon": "🌱"})
-        
-        user_sports = user.get("sports", [])
-        if len(user_sports) >= 5:
+        if len(user.get("sports", [])) >= 5:
             badges.append({"name": "Multi-Sport", "icon": "🎯"})
-
-        # Get user's actual uploaded photos (or empty if none)
-        photos = []
-        try:
-            photos_result = supabase.table("user_photos").select("photo_url").eq("user_id", user["id"]).order("display_order").execute()
-            if photos_result.data:
-                photos = [p["photo_url"] for p in photos_result.data if p.get("photo_url")]
-        except Exception:
-            pass
+        photos = photos_by_user.get(uid, [])
 
         result.append({
             "user": {
-                "id": user["id"],
+                "id": uid,
                 "full_name": user.get("full_name"),
                 "age": user.get("age"),
                 "location": user.get("location"),
@@ -148,7 +156,6 @@ async def get_suggested_buddies(
             },
             "score": m["score"]
         })
-    
     return result
 
 
@@ -274,85 +281,78 @@ async def list_buddies(
     
     # Get all buddies where user is user1 or user2
     try:
-        # Get buddies where user is user1
         buddies1_result = supabase.table("buddies").select("*").eq("user1_id", user_id).execute()
         buddies1 = buddies1_result.data if buddies1_result.data else []
-        
-        # Get buddies where user is user2
         buddies2_result = supabase.table("buddies").select("*").eq("user2_id", user_id).execute()
         buddies2 = buddies2_result.data if buddies2_result.data else []
-        
-        # Combine and deduplicate
         all_buddies = buddies1 + buddies2
         buddy_ids = set()
         buddies = []
         for buddy in all_buddies:
-            if buddy["id"] not in buddy_ids:
-                if not status_filter or buddy.get("status") == status_filter:
-                    buddies.append(buddy)
-                    buddy_ids.add(buddy["id"])
+            if buddy["id"] not in buddy_ids and (not status_filter or buddy.get("status") == status_filter):
+                buddies.append(buddy)
+                buddy_ids.add(buddy["id"])
     except Exception:
         buddies = []
-    
+
+    if not buddies:
+        return []
+
+    # Batch fetch: collect all user ids
+    user_ids = list(set(buddy["user1_id"] for buddy in buddies) | set(buddy["user2_id"] for buddy in buddies))
+
+    # Single query for all users
+    users_by_id = {}
+    try:
+        users_result = supabase.table("users").select("id, full_name, age, location, avatar_url, bio").in_("id", user_ids).execute()
+        if users_result.data:
+            users_by_id = {u["id"]: u for u in users_result.data}
+    except Exception:
+        pass
+
+    # Single query for all user_sports (with sports joined)
+    sports_by_user = {uid: [] for uid in user_ids}
+    try:
+        us_result = supabase.table("user_sports").select("user_id, sport_id, sports(*)").in_("user_id", user_ids).execute()
+        if us_result.data:
+            for item in us_result.data:
+                uid = item.get("user_id")
+                s = item.get("sports")
+                if uid is not None and s:
+                    sports_by_user.setdefault(uid, []).append(s)
+    except Exception:
+        pass
+
+    # Single query for all user_goals (with goals joined)
+    goals_by_user = {uid: [] for uid in user_ids}
+    try:
+        ug_result = supabase.table("user_goals").select("user_id, goal_id, goals(*)").in_("user_id", user_ids).execute()
+        if ug_result.data:
+            for item in ug_result.data:
+                uid = item.get("user_id")
+                g = item.get("goals")
+                if uid is not None and g:
+                    goals_by_user.setdefault(uid, []).append(g)
+    except Exception:
+        pass
+
+    def user_detail(uid):
+        u = users_by_id.get(uid) or {"id": uid, "full_name": "Unknown", "age": None, "location": None, "avatar_url": None, "bio": None}
+        sports = sports_by_user.get(uid) or []
+        goals = goals_by_user.get(uid) or []
+        return {
+            "id": u.get("id"),
+            "full_name": u.get("full_name") or "Unknown",
+            "age": u.get("age"),
+            "location": u.get("location"),
+            "avatar_url": u.get("avatar_url"),
+            "bio": u.get("bio"),
+            "sports": [{"id": s.get("id"), "name": s.get("name"), "icon": s.get("icon")} for s in sports],
+            "goals": [{"id": g.get("id"), "name": g.get("name")} for g in goals]
+        }
+
     result = []
     for buddy in buddies:
-        # Determine which user is the other user
-        other_user_id = buddy["user2_id"] if buddy["user1_id"] == user_id else buddy["user1_id"]
-        
-        # Get user1 and user2 data
-        try:
-            user1_result = supabase.table("users").select("id, full_name, age, location, avatar_url, bio").eq("id", buddy["user1_id"]).single().execute()
-            user1_data = user1_result.data if user1_result.data else {}
-        except Exception:
-            user1_data = {"id": buddy["user1_id"], "full_name": "Unknown", "age": None, "location": None, "avatar_url": None, "bio": None}
-        
-        try:
-            user2_result = supabase.table("users").select("id, full_name, age, location, avatar_url, bio").eq("id", buddy["user2_id"]).single().execute()
-            user2_data = user2_result.data if user2_result.data else {}
-        except Exception:
-            user2_data = {"id": buddy["user2_id"], "full_name": "Unknown", "age": None, "location": None, "avatar_url": None, "bio": None}
-        
-        # Get sports and goals for both users
-        try:
-            user1_sports_result = supabase.table("user_sports").select("sport_id, sports(*)").eq("user_id", buddy["user1_id"]).execute()
-            user1_sports = []
-            if user1_sports_result.data:
-                for item in user1_sports_result.data:
-                    if item.get("sports"):
-                        user1_sports.append(item["sports"])
-        except Exception:
-            user1_sports = []
-        
-        try:
-            user2_sports_result = supabase.table("user_sports").select("sport_id, sports(*)").eq("user_id", buddy["user2_id"]).execute()
-            user2_sports = []
-            if user2_sports_result.data:
-                for item in user2_sports_result.data:
-                    if item.get("sports"):
-                        user2_sports.append(item["sports"])
-        except Exception:
-            user2_sports = []
-        
-        try:
-            user1_goals_result = supabase.table("user_goals").select("goal_id, goals(*)").eq("user_id", buddy["user1_id"]).execute()
-            user1_goals = []
-            if user1_goals_result.data:
-                for item in user1_goals_result.data:
-                    if item.get("goals"):
-                        user1_goals.append(item["goals"])
-        except Exception:
-            user1_goals = []
-        
-        try:
-            user2_goals_result = supabase.table("user_goals").select("goal_id, goals(*)").eq("user_id", buddy["user2_id"]).execute()
-            user2_goals = []
-            if user2_goals_result.data:
-                for item in user2_goals_result.data:
-                    if item.get("goals"):
-                        user2_goals.append(item["goals"])
-        except Exception:
-            user2_goals = []
-        
         result.append(BuddyDetail(
             id=buddy["id"],
             user1_id=buddy["user1_id"],
@@ -360,28 +360,9 @@ async def list_buddies(
             match_score=buddy.get("match_score"),
             status=buddy.get("status", "pending"),
             created_at=datetime.fromisoformat(buddy["created_at"].replace("Z", "+00:00")) if isinstance(buddy.get("created_at"), str) else buddy.get("created_at"),
-            user1={
-                "id": user1_data.get("id"),
-                "full_name": user1_data.get("full_name") or "Unknown",
-                "age": user1_data.get("age"),
-                "location": user1_data.get("location"),
-                "avatar_url": user1_data.get("avatar_url"),
-                "bio": user1_data.get("bio"),
-                "sports": [{"id": s.get("id"), "name": s.get("name"), "icon": s.get("icon")} for s in user1_sports],
-                "goals": [{"id": g.get("id"), "name": g.get("name")} for g in user1_goals]
-            },
-            user2={
-                "id": user2_data.get("id"),
-                "full_name": user2_data.get("full_name") or "Unknown",
-                "age": user2_data.get("age"),
-                "location": user2_data.get("location"),
-                "avatar_url": user2_data.get("avatar_url"),
-                "bio": user2_data.get("bio"),
-                "sports": [{"id": s.get("id"), "name": s.get("name"), "icon": s.get("icon")} for s in user2_sports],
-                "goals": [{"id": g.get("id"), "name": g.get("name")} for g in user2_goals]
-            }
+            user1=user_detail(buddy["user1_id"]),
+            user2=user_detail(buddy["user2_id"])
         ))
-    
     return result
 
 

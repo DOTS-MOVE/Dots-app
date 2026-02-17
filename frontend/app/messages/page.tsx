@@ -3,12 +3,14 @@
 export const dynamic = 'force-dynamic';
 
 import { useEffect, useState, useRef, Suspense } from 'react';
+import useSWR from 'swr';
 import { useAuth } from '@/lib/auth';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import BottomNav from '@/components/BottomNav';
 import { MessagesSkeleton } from '@/components/SkeletonLoader';
 import ProfileAvatar from '@/components/ProfileAvatar';
+import { useConversations } from '@/lib/hooks';
 import { api } from '@/lib/api';
 import { Conversation, Message } from '@/types';
 import { uploadImage } from '@/lib/storage';
@@ -18,12 +20,10 @@ function MessagesPageContent() {
   const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const { conversations, isLoading: isConversationsLoading, mutate: mutateConversations } = useConversations();
   const [selectedConversation, setSelectedConversation] = useState<number | null>(null);
   const [conversationType, setConversationType] = useState<'user' | 'event' | 'group'>('user');
-  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [loading, setLoading] = useState(true);
   const [showNewChat, setShowNewChat] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
@@ -34,33 +34,30 @@ function MessagesPageContent() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const emojiPickerRef = useRef<HTMLDivElement>(null);
 
+  const { data: messages = [], isLoading: isMessagesLoading, mutate: mutateMessages } = useSWR<Message[]>(
+    user && selectedConversation && conversationType
+      ? ['conversation', selectedConversation, conversationType]
+      : null,
+    () => api.getConversation(selectedConversation!, conversationType!),
+    { revalidateOnFocus: false, dedupingInterval: 10000 }
+  );
+
+  const loading = isConversationsLoading && conversations.length === 0;
+
   useEffect(() => {
-    const controller = new AbortController();
-    const signal = controller.signal;
-
-    loadConversations(signal).finally(() => {
-      if (!signal.aborted) setLoading(false);
-    });
-
     const convId = searchParams?.get('id');
     const convType = searchParams?.get('type') as 'user' | 'event' | 'group' | null;
     if (convId && convType) {
       setSelectedConversation(parseInt(convId));
       setConversationType(convType);
     }
-
-    return () => controller.abort();
-  }, [user, searchParams]);
+  }, [searchParams]);
 
   useEffect(() => {
-    if (!selectedConversation) return;
-    const controller = new AbortController();
-    const signal = controller.signal;
-
-    loadMessages(signal);
-
-    return () => controller.abort();
-  }, [selectedConversation, conversationType]);
+    if (!selectedConversation || !conversationType) return;
+    api.markConversationRead(selectedConversation, conversationType).catch(() => {});
+    mutateConversations().catch(() => {});
+  }, [selectedConversation, conversationType, mutateConversations]);
 
   useEffect(() => {
     scrollToBottom();
@@ -68,31 +65,6 @@ function MessagesPageContent() {
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  const loadConversations = async (signal?: AbortSignal) => {
-    try {
-      const data = await api.getConversations({ signal });
-      if (signal?.aborted) return;
-      setConversations(data);
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') return;
-      console.error('Failed to load conversations:', error);
-    }
-  };
-
-  const loadMessages = async (signal?: AbortSignal) => {
-    if (!selectedConversation) return;
-    try {
-      const data = await api.getConversation(selectedConversation, conversationType, { signal });
-      if (signal?.aborted) return;
-      setMessages(data);
-      await api.markConversationRead(selectedConversation, conversationType);
-      await loadConversations();
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') return;
-      console.error('Failed to load messages:', error);
-    }
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -140,8 +112,8 @@ function MessagesPageContent() {
       setImageFile(null);
       setImagePreview(null);
       setShowEmojiPicker(false);
-      await loadMessages();
-      await loadConversations();
+      mutateMessages();
+      mutateConversations();
       inputRef.current?.focus();
     } catch (error: any) {
       alert(error.message || 'Failed to send message');
@@ -284,13 +256,13 @@ function MessagesPageContent() {
                     key={`${conv.type}-${conv.id}`}
                     role="button"
                     tabIndex={0}
-                    onClick={async () => {
+                    onClick={() => {
                       setSelectedConversation(conv.id);
                       setConversationType(conv.type);
                       router.push(`/messages?id=${conv.id}&type=${conv.type}`);
                       if (conv.unread_count > 0) {
-                        await api.markConversationRead(conv.id, conv.type);
-                        await loadConversations();
+                        api.markConversationRead(conv.id, conv.type).catch(() => {});
+                        mutateConversations().catch(() => {});
                       }
                     }}
                     className={`w-full p-4 text-left border-b border-gray-100 hover:bg-[#E6F9F4] transition-colors cursor-pointer ${
@@ -421,7 +393,11 @@ function MessagesPageContent() {
 
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-6 space-y-1 bg-gray-50">
-                {messages.length === 0 ? (
+                {isMessagesLoading && messages.length === 0 ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center text-gray-500">Loading messages...</div>
+                  </div>
+                ) : messages.length === 0 ? (
                   <div className="flex items-center justify-center h-full">
                     <div className="text-center text-gray-500">
                       <svg className="w-12 h-12 mx-auto mb-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
