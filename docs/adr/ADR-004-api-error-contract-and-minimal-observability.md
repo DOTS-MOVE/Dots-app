@@ -13,6 +13,7 @@ This behavior is currently confirmed for:
 
 - `GET /events` (`backend/api/events.py`)
 - `GET /posts` (`backend/api/posts.py`)
+- `GET /buddies` (`backend/api/buddies.py`)
 
 When failures are converted to empty lists, the system loses a clear distinction between:
 
@@ -23,7 +24,7 @@ This masks incidents, complicates debugging, and creates low-trust UX behavior.
 
 ## Problem Statement
 
-We need to stop silent failure masking for the two highest-impact list endpoints while keeping initial change scope small and low risk.
+We need to stop silent failure masking for the highest-impact list endpoints while keeping initial change scope small and low risk.
 
 ## Decision Drivers
 
@@ -34,10 +35,11 @@ We need to stop silent failure masking for the two highest-impact list endpoints
 
 ## Decision
 
-Phase 1 will harden only two endpoints:
+Phase 1 will harden only three endpoints:
 
 1. `GET /events`
 2. `GET /posts`
+3. `GET /buddies`
 
 For these endpoints:
 
@@ -51,6 +53,7 @@ In scope:
 
 - `backend/api/events.py` list handler (`GET /events`)
 - `backend/api/posts.py` list handler (`GET /posts`)
+- `backend/api/buddies.py` list handler (`GET /buddies`)
 - Minimal logger wiring in those modules only
 
 Out of scope (Phase 1):
@@ -105,18 +108,19 @@ Must not log:
 
 - Restrict Phase 1 scope to two endpoints.
 - Keep frontend compatibility path temporarily where needed.
-- Add targeted contract tests for both endpoints before broad rollout.
+- Add targeted contract tests for all scoped endpoints before broad rollout.
 
 ## Validation and Success Criteria
 
 - `GET /events` returns `5xx` on simulated query failure and logs exception context.
 - `GET /posts` returns `5xx` on simulated query failure and logs exception context.
-- Both endpoints still return `200 []` for true empty datasets.
+- `GET /buddies` returns `5xx` on simulated query failure and logs exception context.
+- All scoped endpoints still return `200 []` for true empty datasets.
 - Developers can distinguish empty data from outage in logs and API responses.
 
 ## Rollout Plan
 
-1. Merge Phase 1 backend changes for events/posts.
+1. Merge Phase 1 backend changes for events/posts/buddies.
 2. Verify in local and staging using failure simulation.
 3. Decide frontend handling strategy:
 - Short-term compatibility: map backend `5xx` to current empty-state behavior in selected clients while logging.
@@ -154,3 +158,19 @@ Negative:
 - `docs/adr/ADR-003-schema-governance-and-drift-remediation.md`
 - `docs/onboarding/day3-api-gaps.md`
 - `docs/onboarding/day4-contract-risks.md`
+
+## How to Run ADR-004 Tests
+
+From repo root:
+
+```bash
+pytest -q backend/tests/test_list_error_contract.py
+```
+
+Expected:
+
+- `6 passed`
+- Confirms:
+  - true empty list behavior remains `200 []` for `/events`, `/posts`, and `/buddies`
+  - operational query failures return `503` with `detail`
+  - failure paths emit backend exception logs

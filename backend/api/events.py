@@ -2,11 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from supabase import Client
 from typing import Optional, List
 from datetime import datetime
+import logging
 from core.database import get_supabase
 from api.auth import get_current_user, get_current_user_optional
 from schemas.event import EventCreate, EventUpdate, EventResponse, EventDetail
 
 router = APIRouter(prefix="/events", tags=["events"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("", response_model=EventResponse, status_code=status.HTTP_201_CREATED)
@@ -190,7 +192,20 @@ async def list_events(
         events_result = query.order("start_time").execute()
         events = events_result.data if events_result.data else []
     except Exception:
-        events = []
+        logger.exception(
+            "Operational failure listing events",
+            extra={
+                "sport_id": sport_id,
+                "location": location,
+                "start_date": start_date.isoformat() if start_date else None,
+                "end_date": end_date.isoformat() if end_date else None,
+                "search": search,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable"
+        )
     
     # Apply search filter if provided
     if search:

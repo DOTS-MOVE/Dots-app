@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from supabase import Client
 from typing import Optional, List
+import logging
 from core.database import get_supabase
 from api.auth import get_current_user, get_current_user_optional
 from schemas.post import PostCreate, PostResponse
 
 router = APIRouter(prefix="/posts", tags=["posts"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("", response_model=PostResponse, status_code=status.HTTP_201_CREATED)
@@ -108,9 +110,20 @@ async def get_posts(
     # Order by created_at desc, apply limit and offset - handle errors gracefully
     try:
         posts_result = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
-    except Exception as e:
-        # If query fails, return empty array
-        return []
+    except Exception:
+        logger.exception(
+            "Operational failure listing posts",
+            extra={
+                "user_id": user_id,
+                "limit": limit,
+                "offset": offset,
+                "has_current_user": bool(current_user and isinstance(current_user, dict)),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable"
+        )
     
     if not posts_result.data:
         return []
