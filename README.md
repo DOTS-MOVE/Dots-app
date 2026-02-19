@@ -40,7 +40,7 @@ pip install -r requirements.txt
 ```bash
 # Backend
 cd backend
-cp .env.example .env
+cp env.example .env
 # Edit .env with your database URL and secret key
 ```
 
