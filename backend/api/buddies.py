@@ -2,12 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from supabase import Client
 from typing import List, Optional
 from datetime import datetime
+import logging
 from core.database import get_supabase
 from api.auth import get_current_user
 from schemas.buddy import BuddyResponse, BuddyDetail, BuddyRequest, BuddyUpdate
 from services.buddying import find_potential_buddies, create_buddy_request, calculate_buddy_score
 
 router = APIRouter(prefix="/buddies", tags=["buddies"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/suggested", response_model=List[dict])
@@ -293,7 +295,17 @@ async def list_buddies(
                 buddies.append(buddy)
                 buddy_ids.add(buddy["id"])
     except Exception:
-        buddies = []
+        logger.exception(
+            "Operational failure listing buddies",
+            extra={
+                "user_id": user_id,
+                "status_filter": status_filter,
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable"
+        )
 
     if not buddies:
         return []
