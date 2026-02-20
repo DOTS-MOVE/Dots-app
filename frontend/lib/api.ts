@@ -1,6 +1,7 @@
 import { Event, Sport, User, Buddy, GroupChat, Conversation, Goal, Message, GroupMember, Post } from '@/types';
 import { logApiEnv, logApiRequest, logApiError } from './apiDebug';
 import { supabase } from './supabase';
+import { classifyAuthFailure, createAuthRequestId, logAuthEvent, recordAuthFailure } from './authDiagnostics';
 
 export class ApiClient {
   private localBuddies: Buddy[] = [];
@@ -9,6 +10,7 @@ export class ApiClient {
   private rsvpEvents: Set<number> = new Set();
   private baseUrl: string = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
   private _debugLogged = false;
+  private refreshInFlight: Promise<string | null> | null = null;
 
   private ensureDebugLogged() {
     if (this._debugLogged || typeof window === 'undefined') return;
@@ -69,6 +71,52 @@ export class ApiClient {
     // Token is managed by Supabase, this is kept for compatibility
   }
 
+  private async refreshAccessToken(requestId?: string): Promise<string | null> {
+    if (!this.refreshInFlight) {
+      logAuthEvent('log', 'auth.refresh.start', {
+        method: 'getCurrentUser',
+        path: '/users/me',
+        requestId,
+        refreshAttempted: true,
+      });
+      this.refreshInFlight = (async () => {
+        try {
+          const { data, error } = await supabase.auth.refreshSession();
+          const token = error ? null : (data.session?.access_token || null);
+          logAuthEvent('log', 'auth.refresh.done', {
+            method: 'getCurrentUser',
+            path: '/users/me',
+            requestId,
+            refreshAttempted: true,
+            refreshSucceeded: !!token,
+            reason: token ? undefined : 'refresh_failed',
+          });
+          return token;
+        } catch {
+          logAuthEvent('warn', 'auth.refresh.done', {
+            method: 'getCurrentUser',
+            path: '/users/me',
+            requestId,
+            refreshAttempted: true,
+            refreshSucceeded: false,
+            reason: 'refresh_failed',
+          });
+          return null;
+        } finally {
+          this.refreshInFlight = null;
+        }
+      })();
+    } else {
+      logAuthEvent('log', 'auth.refresh.reuse', {
+        method: 'getCurrentUser',
+        path: '/users/me',
+        requestId,
+        refreshAttempted: true,
+      });
+    }
+    return this.refreshInFlight;
+  }
+
   // Auth is handled by Supabase in lib/auth.tsx; these are unused stubs.
   async register(_email: string, _password: string, _fullName: string): Promise<{ access_token: string; token_type: string }> {
     throw new Error('Use the auth context (register) for sign-up.');
@@ -81,26 +129,125 @@ export class ApiClient {
   // Users - Uses Promise.race for timeout (no AbortController) to avoid "signal is aborted" errors
   async getCurrentUser(accessToken?: string | null): Promise<User> {
     this.ensureDebugLogged();
-    const token = accessToken ?? (await this.getToken());
-    if (!token) {
+    const initialToken = accessToken ?? (await this.getToken());
+    const requestId = createAuthRequestId();
+    if (!initialToken) {
       logApiRequest('getCurrentUser', `${this.baseUrl}/users/me`, { hasToken: false });
+      const reason = classifyAuthFailure({ hasToken: false });
+      logAuthEvent('warn', 'auth.request.unauthenticated', {
+        method: 'getCurrentUser',
+        path: '/users/me',
+        requestId,
+        refreshAttempted: false,
+        reason,
+      });
+      recordAuthFailure({
+        method: 'getCurrentUser',
+        path: '/users/me',
+        requestId,
+        refreshAttempted: false,
+        reason,
+      });
       throw new Error('Not authenticated');
     }
 
     const url = `${this.baseUrl}/users/me`;
     logApiRequest('getCurrentUser', url, { hasToken: true });
     const timeoutMs = 8000; // 8s - fast fallback for login
-    const fetchPromise = fetch(url, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
-    );
+    const fetchWithTimeout = async (token: string) => {
+      const fetchPromise = fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'X-Request-ID': requestId,
+        },
+      });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
+      );
+      return Promise.race([fetchPromise, timeoutPromise]);
+    };
 
     try {
-      const response = await Promise.race([fetchPromise, timeoutPromise]);
+      let response = await fetchWithTimeout(initialToken);
+      let refreshAttempted = false;
+      let refreshSucceeded = false;
+
+      if (response.status === 401) {
+        refreshAttempted = true;
+        logAuthEvent('warn', 'auth.request.401.initial', {
+          method: 'getCurrentUser',
+          path: '/users/me',
+          requestId,
+          status: response.status,
+          refreshAttempted,
+          refreshSucceeded: false,
+          reason: classifyAuthFailure({
+            hasToken: true,
+            status: response.status,
+          }),
+        });
+
+        const refreshedToken = await this.refreshAccessToken(requestId);
+        if (!refreshedToken) {
+          const reason = classifyAuthFailure({
+            hasToken: true,
+            status: response.status,
+            refreshAttempted: true,
+            refreshSucceeded: false,
+          });
+          logAuthEvent('error', 'auth.refresh.failed', {
+            method: 'getCurrentUser',
+            path: '/users/me',
+            requestId,
+            status: response.status,
+            refreshAttempted: true,
+            refreshSucceeded: false,
+            reason,
+          });
+          recordAuthFailure({
+            method: 'getCurrentUser',
+            path: '/users/me',
+            requestId,
+            status: response.status,
+            refreshAttempted: true,
+            refreshSucceeded: false,
+            reason,
+          });
+          throw new Error('Not authenticated');
+        }
+
+        refreshSucceeded = true;
+        response = await fetchWithTimeout(refreshedToken);
+      }
       if (!response.ok) {
-        await logApiError('getCurrentUser', url, response, { hasToken: !!token });
+        const reason = classifyAuthFailure({
+          hasToken: true,
+          status: response.status,
+          retryStatus: response.status,
+          refreshAttempted,
+          refreshSucceeded,
+        });
+        logAuthEvent('warn', 'auth.request.failed', {
+          method: 'getCurrentUser',
+          path: '/users/me',
+          requestId,
+          status: response.status,
+          retryStatus: response.status,
+          refreshAttempted,
+          refreshSucceeded,
+          reason,
+        });
+        recordAuthFailure({
+          method: 'getCurrentUser',
+          path: '/users/me',
+          requestId,
+          status: response.status,
+          retryStatus: response.status,
+          refreshAttempted,
+          refreshSucceeded,
+          reason,
+        });
+        await logApiError('getCurrentUser', url, response, { hasToken: true });
         throw new Error('Failed to fetch user profile');
       }
       return response.json();
@@ -108,7 +255,7 @@ export class ApiClient {
       if (e?.name === 'AbortError') {
         throw new Error('Request timeout');
       }
-      if (e?.message === 'Failed to fetch' || e?.message?.includes('fetch')) {
+      if (e?.message === 'Failed to fetch') {
         throw new Error('Unable to connect to the server. Please check your connection.');
       }
       throw e;
@@ -1566,4 +1713,3 @@ export class ApiClient {
 }
 
 export const api = new ApiClient();
-

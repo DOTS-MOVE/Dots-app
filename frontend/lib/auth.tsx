@@ -30,74 +30,94 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
 
-    const initializeAuth = async () => {
-      try {
-        // getSession can hang; use getSession (faster, storage) with timeout fallback
-        let session: { user: any } | null = null;
-        try {
-          const result = await Promise.race([
-            supabase.auth.getSession(),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('Auth init timeout')), 4000)
-            ),
-          ]);
-          session = result.data?.session ?? null;
-          if (result.error) {
-            console.warn('Session error:', result.error.message);
-          }
-        } catch (timeoutErr: any) {
-          // AbortError/signal aborted: request cancelled (navigation, unmount) - treat as no session
-          if (timeoutErr?.name === 'AbortError' || (timeoutErr?.message ?? '').toLowerCase().includes('aborted')) {
-            session = null;
-          } else if (timeoutErr?.message === 'Auth init timeout') {
-            console.warn('Auth init slow – using anonymous session. Check Supabase config/network.');
-          } else {
-            console.warn('Auth init:', timeoutErr?.message || timeoutErr);
-          }
-        }
+    const hydrateFromSession = async (session: any | null) => {
+      if (cancelled) return;
 
+      if (!session?.user) {
+        setUser(null);
+        setUserFromApi(false);
+        setLoading(false);
+        return;
+      }
+
+      if (!isEmailConfirmed(session.user)) {
+        await supabase.auth.signOut();
         if (cancelled) return;
-        if (session?.user) {
-          if (isEmailConfirmed(session.user)) {
-            try {
-              const { api } = await import('./api');
-              const fullUser = await api.getCurrentUser();
-              if (cancelled) return;
-              setUser(fullUser);
-              setUserFromApi(true);
-            } catch (apiError: any) {
-              if (cancelled) return;
-              const mapped = mapSupabaseUser(session.user);
-              if (mapped) {
-                setUser(mapped);
-                setUserFromApi(false);
-              }
-            }
-          } else {
-            await supabase.auth.signOut();
-            setUser(null);
-            setUserFromApi(false);
-          }
+        setUser(null);
+        setUserFromApi(false);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const { api } = await import('./api');
+        const fullUser = await api.getCurrentUser(session?.access_token ?? undefined);
+        if (cancelled) return;
+        setUser(fullUser);
+        setUserFromApi(true);
+      } catch (apiError: any) {
+        if (cancelled) return;
+        if (apiError?.name === 'AbortError' || (apiError?.message ?? '').toLowerCase().includes('aborted')) return;
+        const mapped = mapSupabaseUser(session.user);
+        if (mapped) {
+          setUser(mapped);
+          setUserFromApi(false);
         } else {
           setUser(null);
           setUserFromApi(false);
         }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    const initializeAuth = async () => {
+      try {
+        const result = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Auth init timeout')), 4000)
+          ),
+        ]);
+        if (cancelled) return;
+
+        if (result.error) {
+          console.warn('Session error:', result.error.message);
+        }
+
+        await hydrateFromSession(result.data?.session ?? null);
       } catch (error: any) {
         if (cancelled) return;
         if (error?.name === 'AbortError' || (error?.message ?? '').toLowerCase().includes('aborted')) return;
+
+        if (error?.message === 'Auth init timeout') {
+          console.warn('Auth init slow - attempting session refresh.');
+          try {
+            const refreshed = await Promise.race([
+              supabase.auth.refreshSession(),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Auth refresh timeout')), 4000)
+              ),
+            ]);
+            if (cancelled) return;
+            await hydrateFromSession(refreshed.data?.session ?? null);
+            return;
+          } catch (refreshError: any) {
+            if (cancelled) return;
+            console.warn('Auth init refresh failed:', refreshError?.message || refreshError);
+            await hydrateFromSession(null);
+            return;
+          }
+        }
+
         console.error('Failed to initialize auth:', error.message || error);
-        setUser(null);
-        setUserFromApi(false);
-      } finally {
-        if (!cancelled) setLoading(false);
+        await hydrateFromSession(null);
       }
     };
 
     initializeAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'INITIAL_SESSION') return;
-
       if (event === 'SIGNED_OUT' || !session) {
         setUser(null);
         setUserFromApi(false);
@@ -106,38 +126,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Defer to next tick to avoid lock race with signInWithPassword (Supabase auth-js locks.ts AbortError)
-      const runAfter = event === 'SIGNED_IN' ? () => setTimeout(handleSignedIn, 0) : () => handleSignedIn();
+      const runAfter = event === 'SIGNED_IN'
+        ? () => setTimeout(() => { void hydrateFromSession(session); }, 0)
+        : () => { void hydrateFromSession(session); };
       runAfter();
-
-      async function handleSignedIn() {
-        if (cancelled) return;
-        if (session?.user) {
-          if (isEmailConfirmed(session.user)) {
-            try {
-              const { api } = await import('./api');
-              const fullUser = await api.getCurrentUser(session?.access_token ?? undefined);
-              if (cancelled) return;
-              setUser(fullUser);
-              setUserFromApi(true);
-            } catch (apiError: any) {
-              if (cancelled) return;
-              if (apiError?.name === 'AbortError' || (apiError?.message ?? '').toLowerCase().includes('aborted')) return;
-              const mapped = mapSupabaseUser(session.user);
-              if (mapped) {
-                setUser(mapped);
-                setUserFromApi(false);
-              }
-            }
-          } else {
-            setUser(null);
-            setUserFromApi(false);
-          }
-        } else {
-          setUser(null);
-          setUserFromApi(false);
-        }
-        setLoading(false);
-      }
     });
 
     return () => {
