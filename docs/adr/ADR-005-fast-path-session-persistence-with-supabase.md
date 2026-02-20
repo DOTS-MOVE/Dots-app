@@ -60,11 +60,48 @@ Out of scope:
 - On first authenticated API `401`, trigger Supabase session refresh.
 - Retry the failed request exactly once.
 - If retry fails, transition to unauthenticated state.
+- Use a shared in-flight refresh lock so concurrent `401` requests reuse one refresh call.
 
 3. Guard rails
 - Preserve explicit sign-out behavior.
 - Avoid infinite refresh loops.
 - Add debug logging around session restore failures (no secrets/tokens in logs).
+
+## Implemented Scope (Current)
+
+Implemented in this phase:
+
+1. Refresh strategy scope
+- `frontend/lib/auth.tsx`:
+  - startup session bootstrap hardening
+  - timeout fallback to one `refreshSession` attempt
+  - `INITIAL_SESSION` hydration path support
+- `frontend/lib/api.ts`:
+  - `getCurrentUser` only: first `401` triggers one refresh and one retry
+  - shared in-flight refresh lock to prevent refresh storms under concurrent requests
+
+2. Diagnostics scope
+- `frontend/lib/authDiagnostics.ts` introduced for structured auth diagnostics.
+- `frontend/lib/api.ts` (`getCurrentUser` path only) emits:
+  - request ID (`X-Request-ID`)
+  - auth failure classification (`missing_token`, `refresh_failed`, `retry_401_after_refresh`, etc.)
+  - anomaly logging for repeated `401` after refresh (`AUTH_MISCONFIG_SUSPECTED` threshold)
+- No token/cookie/raw auth header logging.
+
+## Deferred Expansion (Out of Current Blast Radius)
+
+The following high-traffic endpoints are candidates for a future phase to adopt the same refresh+retry pattern and diagnostics:
+
+1. `getEvents`
+2. `getSuggestedBuddies`
+3. `getBuddies`
+4. `getConversations`
+5. `getConversation`
+6. `getPosts`
+7. `getMyEvents`
+8. `updateUser`
+
+These are intentionally deferred to keep risk contained in the current rollout.
 
 ## Risks
 
@@ -84,6 +121,59 @@ Out of scope:
 - App start does not prematurely redirect authenticated users to login during slow session restore.
 - First `401` from expired session recovers via silent refresh + single retry in normal cases.
 - No infinite retry loops or auth event thrashing observed.
+- Diagnostics are emitted for `getCurrentUser` auth failure paths without leaking secrets/tokens.
+
+## Test Strategy
+
+Use a layered approach with integration-focused frontend tests plus targeted unit tests.
+
+1. Unit tests (small scope)
+- Extract and test pure logic helpers where practical (example: retry-once guard, auth loading state transitions).
+- Validate deterministic edge cases quickly (no network, no SDK event bus).
+
+2. Integration tests (primary)
+- Test `frontend/lib/auth.tsx` and `frontend/lib/api.ts` behavior with mocked Supabase auth methods and mocked `fetch`.
+- Tooling: frontend test runner stack (Vitest/Jest + React Testing Library as applicable in repo).
+- Mock/monkeypatch:
+  - `supabase.auth.getSession`
+  - `supabase.auth.onAuthStateChange`
+  - `supabase.auth.refreshSession`
+  - `global.fetch`
+
+3. End-to-end sanity check (minimal)
+- One lightweight manual or automated smoke flow in staging:
+  - sign in
+  - close/reopen browser tab
+  - verify session remains active
+  - verify expired-session path recovers once via silent refresh
+
+### Required Test Cases
+
+1. Slow app-start session resolution:
+- Delayed `getSession` must not immediately force unauthenticated UI state/redirect.
+
+2. Restored session event handling:
+- `INITIAL_SESSION` with valid session must hydrate authenticated user path.
+
+3. Expired access token recovery:
+- First API `401` triggers exactly one refresh call and one request retry, then succeeds.
+
+4. Refresh failure path:
+- If refresh fails, app transitions to unauthenticated state cleanly.
+
+5. Retry loop protection:
+- Repeated `401` responses do not cause infinite refresh/retry loops.
+
+6. Concurrent `401` protection:
+- Concurrent authenticated calls that fail with `401` share a single refresh call and then retry once each.
+
+7. Refresh lock recovery:
+- If refresh fails, lock is cleared and next request can attempt refresh again.
+
+### Non-Goals for This ADR
+
+- Backend integration tests for refresh-token cookies/endpoints (out of scope for fast path).
+- Full cross-browser auth lifecycle certification.
 
 ## Rollback Strategy
 
