@@ -607,13 +607,14 @@ async def rsvp_event(
             detail=f"Supabase connection error: {str(e)}"
         )
     
-    user_id = current_user.get("id")
-    if not user_id:
+    raw_uid = current_user.get("id")
+    if raw_uid is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User ID not found"
         )
-    
+    user_id = int(raw_uid)  # event_rsvps.user_id is integer
+
     # Get event
     try:
         event_result = supabase.table("events").select("*").eq("id", event_id).single().execute()
@@ -690,7 +691,7 @@ async def rsvp_event(
             detail=f"Failed to RSVP: {str(e)}"
         )
     
-    return await get_event(event_id)
+    return await get_event(event_id, current_user=current_user)
 
 
 @router.delete("/{event_id}/rsvp", status_code=status.HTTP_204_NO_CONTENT)
@@ -698,7 +699,7 @@ async def cancel_rsvp(
     event_id: int,
     current_user: dict = Depends(get_current_user)
 ):
-    """Cancel RSVP to an event"""
+    """Cancel RSVP to an event. Idempotent: returns 204 even if no RSVP exists (already cancelled)."""
     try:
         supabase: Client = get_supabase()
     except Exception as e:
@@ -707,21 +708,25 @@ async def cancel_rsvp(
             detail=f"Supabase connection error: {str(e)}"
         )
     
-    user_id = current_user.get("id")
-    if not user_id:
+    raw_uid = current_user.get("id")
+    if raw_uid is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User ID not found"
         )
-    
+    user_id = int(raw_uid)  # event_rsvps.user_id is integer
+
     try:
-        supabase.table("event_rsvps").delete().eq("event_id", event_id).eq("user_id", user_id).execute()
+        # Check if RSVP exists first (idempotent: avoid delete with 0 rows which can cause client/server issues)
+        existing = supabase.table("event_rsvps").select("event_id").eq("event_id", event_id).eq("user_id", user_id).maybe_single().execute()
+        if existing.data:
+            supabase.table("event_rsvps").delete().eq("event_id", event_id).eq("user_id", user_id).execute()
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to cancel RSVP: {str(e)}"
         )
-    
+    # Already cancelled (no row) or just deleted: same response
     return None
 
 

@@ -2,6 +2,40 @@ import { Event, Sport, User, Buddy, GroupChat, Conversation, Goal, Message, Grou
 import { logApiEnv, logApiRequest, logApiError } from './apiDebug';
 import { supabase } from './supabase';
 
+/** Retry only on transient errors (timeout, network). Does not retry on AbortError or 4xx. */
+function isRetryableError(e: any): boolean {
+  if (e?.name === 'AbortError') return false;
+  const msg = e?.message ?? '';
+  return (
+    msg === 'Request timeout' ||
+    msg.includes('timeout') ||
+    msg === 'Failed to fetch' ||
+    msg.includes('fetch') ||
+    msg.includes('Unable to connect')
+  );
+}
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  opts: { retries?: number; delayMs?: number } = {}
+): Promise<T> {
+  const { retries = 2, delayMs = 1200 } = opts;
+  let lastError: any;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (e: any) {
+      lastError = e;
+      if (attempt < retries && isRetryableError(e)) {
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastError;
+}
+
 export class ApiClient {
   private localBuddies: Buddy[] = [];
   private localMessages: Message[] = [];
@@ -78,67 +112,71 @@ export class ApiClient {
     throw new Error('Use the auth context (login) for sign-in.');
   }
 
-  // Users - Uses Promise.race for timeout (no AbortController) to avoid "signal is aborted" errors
+  // Users - Uses Promise.race for timeout (no AbortController) to avoid "signal is aborted" errors. Retries on timeout/network.
   async getCurrentUser(accessToken?: string | null): Promise<User> {
-    this.ensureDebugLogged();
-    const token = accessToken ?? (await this.getToken());
-    if (!token) {
-      logApiRequest('getCurrentUser', `${this.baseUrl}/users/me`, { hasToken: false });
-      throw new Error('Not authenticated');
-    }
+    return withRetry(async () => {
+      this.ensureDebugLogged();
+      const token = accessToken ?? (await this.getToken());
+      if (!token) {
+        logApiRequest('getCurrentUser', `${this.baseUrl}/users/me`, { hasToken: false });
+        throw new Error('Not authenticated');
+      }
 
-    const url = `${this.baseUrl}/users/me`;
-    logApiRequest('getCurrentUser', url, { hasToken: true });
-    const timeoutMs = 8000; // 8s - fast fallback for login
-    const fetchPromise = fetch(url, {
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
-    );
+      const url = `${this.baseUrl}/users/me`;
+      logApiRequest('getCurrentUser', url, { hasToken: true });
+      const timeoutMs = 10000; // 10s (retries cover transient slowness)
+      const fetchPromise = fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
+      );
 
-    try {
-      const response = await Promise.race([fetchPromise, timeoutPromise]);
-      if (!response.ok) {
-        await logApiError('getCurrentUser', url, response, { hasToken: !!token });
-        throw new Error('Failed to fetch user profile');
+      try {
+        const response = await Promise.race([fetchPromise, timeoutPromise]);
+        if (!response.ok) {
+          await logApiError('getCurrentUser', url, response, { hasToken: !!token });
+          throw new Error('Failed to fetch user profile');
+        }
+        return response.json();
+      } catch (e: any) {
+        if (e?.name === 'AbortError') {
+          throw new Error('Request timeout');
+        }
+        if (e?.message === 'Failed to fetch' || e?.message?.includes('fetch')) {
+          throw new Error('Unable to connect to the server. Please check your connection.');
+        }
+        throw e;
       }
-      return response.json();
-    } catch (e: any) {
-      if (e?.name === 'AbortError') {
-        throw new Error('Request timeout');
-      }
-      if (e?.message === 'Failed to fetch' || e?.message?.includes('fetch')) {
-        throw new Error('Unable to connect to the server. Please check your connection.');
-      }
-      throw e;
-    }
+    }, { retries: 2, delayMs: 1000 });
   }
 
   async getUser(userId: number, opts?: { signal?: AbortSignal }): Promise<User> {
-    const token = await this.getToken();
-    const headers: HeadersInit = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-    if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    return withRetry(async () => {
+      const token = await this.getToken();
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
-    const fetchPromise = fetch(`${this.baseUrl}/users/${userId}`, { headers, signal: opts?.signal });
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Request timeout')), 15000)
-    );
-    try {
-      const response = await Promise.race([fetchPromise, timeoutPromise]);
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: 'Failed to fetch user' }));
-        throw new Error(errorData.detail || 'Failed to fetch user');
+      const fetchPromise = fetch(`${this.baseUrl}/users/${userId}`, { headers, signal: opts?.signal });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout')), 18000)
+      );
+      try {
+        const response = await Promise.race([fetchPromise, timeoutPromise]);
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: 'Failed to fetch user' }));
+          throw new Error(errorData.detail || 'Failed to fetch user');
+        }
+        return response.json();
+      } catch (error: any) {
+        if (error?.name === 'AbortError') throw error;
+        if (error?.message === 'Failed to fetch' || error?.message?.includes('fetch')) {
+          throw new Error('Unable to connect to the server. Please check your connection.');
+        }
+        throw error;
       }
-      return response.json();
-    } catch (error: any) {
-      if (error?.name === 'AbortError') throw error;
-      if (error?.message === 'Failed to fetch' || error?.message?.includes('fetch')) {
-        throw new Error('Unable to connect to the server. Please check your connection.');
-      }
-      throw error;
-    }
+    }, { retries: 2, delayMs: 1000 });
   }
 
   async updateUser(data: any): Promise<User> {
@@ -556,7 +594,9 @@ export class ApiClient {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        throw new Error('Failed to cancel RSVP');
+        const errBody = await response.json().catch(() => ({}));
+        const message = (errBody as { detail?: string })?.detail ?? 'Failed to cancel RSVP';
+        throw new Error(message);
       }
 
       this.rsvpEvents.delete(eventId);
@@ -1530,38 +1570,45 @@ export class ApiClient {
     }
   }
 
-  // User Events
+  // User Events - retries on timeout/network; surfaces error so UI can show retry instead of silent empty
   async getMyEvents(opts?: { signal?: AbortSignal }): Promise<{ owned: Event[]; attending: Event[]; attended: Event[] }> {
-    const token = await this.getToken();
-    if (!token) throw new Error('Not authenticated');
     if (opts?.signal?.aborted) return { owned: [], attending: [], attended: [] };
 
-    const url = `${this.baseUrl}/events/user/me`;
-    const fetchPromise = fetch(url, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
+    return withRetry(
+      async () => {
+        const token = await this.getToken();
+        if (!token) throw new Error('Not authenticated');
+        if (opts?.signal?.aborted) return { owned: [], attending: [], attended: [] };
+
+        const url = `${this.baseUrl}/events/user/me`;
+        const fetchPromise = fetch(url, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          signal: opts?.signal,
+        });
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Request timeout')), 18000)
+        );
+        try {
+          const response = await Promise.race([fetchPromise, timeoutPromise]);
+          if (!response.ok) {
+            const parsed = await logApiError('getMyEvents', url, response, { hasToken: !!token });
+            const msg = typeof parsed === 'string' ? parsed : (parsed as { detail?: string })?.detail || 'Failed to fetch user events';
+            throw new Error(msg);
+          }
+          return response.json();
+        } catch (error: any) {
+          if (error?.name === 'AbortError') return { owned: [], attending: [], attended: [] };
+          if (error?.message === 'Failed to fetch' || error?.message?.includes('fetch')) {
+            throw new Error('Unable to load events. Please check your connection.');
+          }
+          throw error;
+        }
       },
-      signal: opts?.signal,
-    });
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Request timeout')), 15000)
+      { retries: 2, delayMs: 1000 }
     );
-    try {
-      const response = await Promise.race([fetchPromise, timeoutPromise]);
-      if (!response.ok) {
-        const parsed = await logApiError('getMyEvents', url, response, { hasToken: !!token });
-        const msg = typeof parsed === 'string' ? parsed : (parsed as { detail?: string })?.detail || 'Failed to fetch user events';
-        throw new Error(msg);
-      }
-      return response.json();
-    } catch (error: any) {
-      if (error?.name === 'AbortError') return { owned: [], attending: [], attended: [] };
-      if (error?.message === 'Failed to fetch' || error?.message?.includes('fetch')) {
-        return { owned: [], attending: [], attended: [] };
-      }
-      throw error;
-    }
   }
 }
 
