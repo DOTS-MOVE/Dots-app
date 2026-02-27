@@ -23,6 +23,7 @@ export const metadata: Metadata = {
   description: "Connect with fitness enthusiasts and discover local sports events",
   icons: {
     icon: "/favicon.png",
+    apple: "/favicon.png",
   },
 };
 

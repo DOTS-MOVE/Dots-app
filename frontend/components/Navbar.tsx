@@ -9,7 +9,7 @@ import { api } from '@/lib/api';
 import Logo from './Logo';
 
 export default function Navbar() {
-  const { user, logout } = useAuth();
+  const { user, loading, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [unreadCount, setUnreadCount] = useState(0);
@@ -54,6 +54,22 @@ export default function Navbar() {
       }
     };
   }, [user]);
+
+  // While auth is loading, show neutral header (no Sign In/Join) so we don't flash logged-out state on refresh
+  if (loading) {
+    return (
+      <nav className="bg-white border-b border-gray-200 sticky top-0 z-50 backdrop-blur-sm bg-white/95">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16 items-center">
+            <div className="flex items-center h-16">
+              <Logo size="small" />
+            </div>
+            <div className="w-24" aria-hidden />
+          </div>
+        </div>
+      </nav>
+    );
+  }
 
   if (!user) {
     return (

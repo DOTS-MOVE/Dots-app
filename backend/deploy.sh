@@ -4,9 +4,15 @@ set -e
 # Set Python version for gcloud (fixes Python 3.12 compatibility issue)
 export CLOUDSDK_PYTHON=/opt/homebrew/bin/python3.11
 
-PROJECT_ID=cycald-ai-backend
+# Default project; override for another GCP account:
+#   GCP_PROJECT_ID=other-project-id ./deploy.sh
+# Or export first: export GCP_PROJECT_ID=other-project-id && ./deploy.sh
+PROJECT_ID=${GCP_PROJECT_ID:-dots-488014}
 SERVICE_NAME=dots-backend
-REGION=us-central1
+REGION=${GCP_REGION:-us-central1}
+
+# Use the target project for this deploy
+gcloud config set project "${PROJECT_ID}"
 
 echo "🚀 Building Docker image..."
 gcloud builds submit --tag gcr.io/${PROJECT_ID}/${SERVICE_NAME}

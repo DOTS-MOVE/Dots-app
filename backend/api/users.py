@@ -28,8 +28,9 @@ async def get_current_user_profile(
     user_id = current_user.get("id")
     if not user_id:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User ID not found"
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User session invalid. Please sign in again.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
     
     # Get photos - handle errors gracefully

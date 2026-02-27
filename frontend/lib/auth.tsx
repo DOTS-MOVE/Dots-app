@@ -32,27 +32,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const initializeAuth = async () => {
       try {
-        // getSession can hang; use getSession (faster, storage) with timeout fallback
-        let session: { user: any } | null = null;
-        try {
+        // getSession can hang; use getSession with timeout and one retry on timeout
+        const AUTH_TIMEOUT_MS = 4000;
+        const RETRY_DELAY_MS = 1500;
+        let session: { user: any; access_token?: string } | null = null;
+
+        const tryGetSession = async (): Promise<typeof session> => {
           const result = await Promise.race([
             supabase.auth.getSession(),
             new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('Auth init timeout')), 4000)
+              setTimeout(() => reject(new Error('Auth init timeout')), AUTH_TIMEOUT_MS)
             ),
           ]);
-          session = result.data?.session ?? null;
-          if (result.error) {
-            console.warn('Session error:', result.error.message);
-          }
+          if (result.error) console.warn('Session error:', result.error.message);
+          return result.data?.session ?? null;
+        };
+
+        try {
+          session = await tryGetSession();
         } catch (timeoutErr: any) {
-          // AbortError/signal aborted: request cancelled (navigation, unmount) - treat as no session
           if (timeoutErr?.name === 'AbortError' || (timeoutErr?.message ?? '').toLowerCase().includes('aborted')) {
             session = null;
           } else if (timeoutErr?.message === 'Auth init timeout') {
-            console.warn('Auth init slow – using anonymous session. Check Supabase config/network.');
+            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+            if (cancelled) return;
+            try {
+              session = await tryGetSession();
+            } catch {
+              session = null;
+            }
           } else {
             console.warn('Auth init:', timeoutErr?.message || timeoutErr);
+            session = null;
           }
         }
 
@@ -61,13 +72,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (isEmailConfirmed(session.user)) {
             try {
               const { api } = await import('./api');
-              const fullUser = await api.getCurrentUser();
+              // Pass token so getCurrentUser doesn't call getToken() -> getSession() again
+              const token = session.access_token ?? undefined;
+              const fullUser = await api.getCurrentUser(token);
               if (cancelled) return;
               setUser(fullUser);
               setUserFromApi(true);
             } catch (apiError: any) {
               if (cancelled) return;
-              const mapped = mapSupabaseUser(session.user);
+              const mapped = mapSupabaseUser(session!.user);
               if (mapped) {
                 setUser(mapped);
                 setUserFromApi(false);

@@ -58,6 +58,7 @@ function ProfilePageContent() {
   const [buddyStatus, setBuddyStatus] = useState<'none' | 'pending' | 'accepted' | 'rejected' | 'loading'>('loading');
   const [showConnectionModal, setShowConnectionModal] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [eventsLoadError, setEventsLoadError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     full_name: '',
     age: '',
@@ -202,6 +203,7 @@ function ProfilePageContent() {
     if (!user?.id) {
       setPosts([]);
       setUserEvents({ owned: [], attending: [], attended: [] });
+      setEventsLoadError(null);
       setContentLoading(false);
       return;
     }
@@ -209,6 +211,7 @@ function ProfilePageContent() {
     const signal = controller.signal;
     setContentLoading(true);
     setError(null);
+    setEventsLoadError(null);
 
     const loadContent = async () => {
       try {
@@ -218,13 +221,22 @@ function ProfilePageContent() {
           setPosts(postsData || []);
           setUserEvents({ owned: [], attending: [], attended: [] });
         } else {
-          const [postsData, eventsData] = await Promise.all([
-            api.getPosts(user.id, 20, 0, { signal }).catch(() => []),
-            api.getMyEvents({ signal }).catch(() => ({ owned: [], attending: [], attended: [] })),
+          const [postsSettled, eventsSettled] = await Promise.allSettled([
+            api.getPosts(user.id, 20, 0, { signal }),
+            api.getMyEvents({ signal }),
           ]);
           if (signal.aborted) return;
-          setPosts(postsData || []);
-          setUserEvents(eventsData || { owned: [], attending: [], attended: [] });
+          const postsData = postsSettled.status === 'fulfilled' ? (postsSettled.value || []) : [];
+          const eventsData = eventsSettled.status === 'fulfilled' ? eventsSettled.value : null;
+          setPosts(postsData);
+          if (eventsData) {
+            setUserEvents(eventsData);
+            setEventsLoadError(null);
+          } else {
+            setUserEvents({ owned: [], attending: [], attended: [] });
+            const err = eventsSettled.status === 'rejected' ? eventsSettled.reason?.message : 'Failed to load events';
+            setEventsLoadError(err || 'Failed to load events');
+          }
         }
       } catch {
         if (!signal.aborted) setPosts([]);
@@ -237,27 +249,29 @@ function ProfilePageContent() {
   }, [user?.id, isViewingOtherUser]);
 
   const loadData = async () => {
-    // Reload all data
-    if (user && user.id) {
-      try {
-        const [postsData, eventsData] = await Promise.all([
-          api.getPosts(user.id).catch((err) => {
-            console.error('Failed to reload posts:', err);
-            return [];
-          }),
-          api.getMyEvents().catch((err) => {
-            console.error('Failed to reload events:', err);
-            return { owned: [], attending: [], attended: [] };
-          }),
-        ]);
-        setPosts(postsData || []);
-        setUserEvents(eventsData || { owned: [], attending: [], attended: [] });
-      } catch (error) {
-        console.error('Failed to reload data:', error);
-        // Set empty defaults on error
-        setPosts([]);
-        setUserEvents({ owned: [], attending: [], attended: [] });
+    if (!user?.id) return;
+    setEventsLoadError(null);
+    try {
+      const [postsData, eventsData] = await Promise.all([
+        api.getPosts(user.id).catch((err) => {
+          console.error('Failed to reload posts:', err);
+          return [];
+        }),
+        api.getMyEvents().catch((err) => {
+          console.error('Failed to reload events:', err);
+          setEventsLoadError(err?.message || 'Failed to load events');
+          return { owned: [], attending: [], attended: [] };
+        }),
+      ]);
+      setPosts(postsData || []);
+      setUserEvents(eventsData || { owned: [], attending: [], attended: [] });
+      if (eventsData && (eventsData.owned?.length || eventsData.attending?.length || eventsData.attended?.length) !== undefined) {
+        setEventsLoadError(null);
       }
+    } catch (error) {
+      console.error('Failed to reload data:', error);
+      setPosts([]);
+      setUserEvents({ owned: [], attending: [], attended: [] });
     }
   };
 
@@ -797,6 +811,18 @@ function ProfilePageContent() {
                 </div>
               ) : (
               <>
+                {eventsLoadError && !isViewingOtherUser && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center justify-between gap-4">
+                    <p className="text-amber-800 text-sm">{eventsLoadError}</p>
+                    <button
+                      type="button"
+                      onClick={() => { setEventsLoadError(null); loadData(); }}
+                      className="shrink-0 px-4 py-2 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 transition-colors text-sm"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
                 {/* Owned Events */}
                 <div>
                   <div className="flex items-center justify-between mb-4">

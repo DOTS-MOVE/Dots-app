@@ -59,7 +59,14 @@ def get_current_user(
                 detail="User not found in database"
             )
         
-        return user_data_result.data[0]
+        row = user_data_result.data[0]
+        # Ensure "id" is always set (some Supabase/PostgREST setups use "uuid" or other key names)
+        uid = row.get("id") or row.get("uuid")
+        if uid is None and getattr(supabase_user, "id", None):
+            uid = supabase_user.id
+        if uid is not None:
+            row = {**row, "id": uid}
+        return row
     except HTTPException:
         raise
     except Exception as e:
@@ -103,7 +110,13 @@ def get_current_user_optional(
         if not user_data_result.data or len(user_data_result.data) == 0:
             return None
         
-        return user_data_result.data[0]
+        row = user_data_result.data[0]
+        uid = row.get("id") or row.get("uuid")
+        if uid is None and getattr(supabase_user, "id", None):
+            uid = supabase_user.id
+        if uid is not None:
+            row = {**row, "id": uid}
+        return row
     except Exception:
         # Return None on any error for optional auth
         return None
