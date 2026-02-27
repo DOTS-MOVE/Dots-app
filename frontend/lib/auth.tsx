@@ -30,79 +30,88 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
 
-    const initializeAuth = async () => {
-      try {
-        // getSession can hang; use getSession with timeout and one retry on timeout
-        const AUTH_TIMEOUT_MS = 4000;
-        const RETRY_DELAY_MS = 1500;
-        let session: { user: any; access_token?: string } | null = null;
+    const hydrateFromSession = async (session: any | null) => {
+      if (cancelled) return;
 
-        const tryGetSession = async (): Promise<typeof session> => {
-          const result = await Promise.race([
-            supabase.auth.getSession(),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error('Auth init timeout')), AUTH_TIMEOUT_MS)
-            ),
-          ]);
-          if (result.error) console.warn('Session error:', result.error.message);
-          return result.data?.session ?? null;
-        };
+      if (!session?.user) {
+        setUser(null);
+        setUserFromApi(false);
+        setLoading(false);
+        return;
+      }
 
-        try {
-          session = await tryGetSession();
-        } catch (timeoutErr: any) {
-          if (timeoutErr?.name === 'AbortError' || (timeoutErr?.message ?? '').toLowerCase().includes('aborted')) {
-            session = null;
-          } else if (timeoutErr?.message === 'Auth init timeout') {
-            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-            if (cancelled) return;
-            try {
-              session = await tryGetSession();
-            } catch {
-              session = null;
-            }
-          } else {
-            console.warn('Auth init:', timeoutErr?.message || timeoutErr);
-            session = null;
-          }
-        }
-
+      if (!isEmailConfirmed(session.user)) {
+        await supabase.auth.signOut();
         if (cancelled) return;
-        if (session?.user) {
-          if (isEmailConfirmed(session.user)) {
-            try {
-              const { api } = await import('./api');
-              // Pass token so getCurrentUser doesn't call getToken() -> getSession() again
-              const token = session.access_token ?? undefined;
-              const fullUser = await api.getCurrentUser(token);
-              if (cancelled) return;
-              setUser(fullUser);
-              setUserFromApi(true);
-            } catch (apiError: any) {
-              if (cancelled) return;
-              const mapped = mapSupabaseUser(session!.user);
-              if (mapped) {
-                setUser(mapped);
-                setUserFromApi(false);
-              }
-            }
-          } else {
-            await supabase.auth.signOut();
-            setUser(null);
-            setUserFromApi(false);
-          }
+        setUser(null);
+        setUserFromApi(false);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const { api } = await import('./api');
+        const fullUser = await api.getCurrentUser(session?.access_token ?? undefined);
+        if (cancelled) return;
+        setUser(fullUser);
+        setUserFromApi(true);
+      } catch (apiError: any) {
+        if (cancelled) return;
+        if (apiError?.name === 'AbortError' || (apiError?.message ?? '').toLowerCase().includes('aborted')) return;
+        const mapped = mapSupabaseUser(session.user);
+        if (mapped) {
+          setUser(mapped);
+          setUserFromApi(false);
         } else {
           setUser(null);
           setUserFromApi(false);
         }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    const initializeAuth = async () => {
+      try {
+        const result = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Auth init timeout')), 4000)
+          ),
+        ]);
+        if (cancelled) return;
+
+        if (result.error) {
+          console.warn('Session error:', result.error.message);
+        }
+
+        await hydrateFromSession(result.data?.session ?? null);
       } catch (error: any) {
         if (cancelled) return;
         if (error?.name === 'AbortError' || (error?.message ?? '').toLowerCase().includes('aborted')) return;
+
+        if (error?.message === 'Auth init timeout') {
+          console.warn('Auth init slow - attempting session refresh.');
+          try {
+            const refreshed = await Promise.race([
+              supabase.auth.refreshSession(),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('Auth refresh timeout')), 4000)
+              ),
+            ]);
+            if (cancelled) return;
+            await hydrateFromSession(refreshed.data?.session ?? null);
+            return;
+          } catch (refreshError: any) {
+            if (cancelled) return;
+            console.warn('Auth init refresh failed:', refreshError?.message || refreshError);
+            await hydrateFromSession(null);
+            return;
+          }
+        }
+
         console.error('Failed to initialize auth:', error.message || error);
-        setUser(null);
-        setUserFromApi(false);
-      } finally {
-        if (!cancelled) setLoading(false);
+        await hydrateFromSession(null);
       }
     };
 
@@ -119,38 +128,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Defer to next tick to avoid lock race with signInWithPassword (Supabase auth-js locks.ts AbortError)
-      const runAfter = event === 'SIGNED_IN' ? () => setTimeout(handleSignedIn, 0) : () => handleSignedIn();
+      const runAfter = event === 'SIGNED_IN'
+        ? () => setTimeout(() => { void hydrateFromSession(session); }, 0)
+        : () => { void hydrateFromSession(session); };
       runAfter();
-
-      async function handleSignedIn() {
-        if (cancelled) return;
-        if (session?.user) {
-          if (isEmailConfirmed(session.user)) {
-            try {
-              const { api } = await import('./api');
-              const fullUser = await api.getCurrentUser(session?.access_token ?? undefined);
-              if (cancelled) return;
-              setUser(fullUser);
-              setUserFromApi(true);
-            } catch (apiError: any) {
-              if (cancelled) return;
-              if (apiError?.name === 'AbortError' || (apiError?.message ?? '').toLowerCase().includes('aborted')) return;
-              const mapped = mapSupabaseUser(session.user);
-              if (mapped) {
-                setUser(mapped);
-                setUserFromApi(false);
-              }
-            }
-          } else {
-            setUser(null);
-            setUserFromApi(false);
-          }
-        } else {
-          setUser(null);
-          setUserFromApi(false);
-        }
-        setLoading(false);
-      }
     });
 
     return () => {
