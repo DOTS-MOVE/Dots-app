@@ -11,6 +11,17 @@ interface EventCardLargeProps {
 
 export default function EventCardLarge({ event }: EventCardLargeProps) {
   const [imageError, setImageError] = useState(false);
+  const isRenderableImageSrc = (value: string | null | undefined) => {
+    if (!value) return false;
+    const src = value.trim();
+    return (
+      src.startsWith('http://') ||
+      src.startsWith('https://') ||
+      src.startsWith('/') ||
+      src.startsWith('data:image/') ||
+      src.startsWith('blob:')
+    );
+  };
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', {
@@ -41,8 +52,10 @@ export default function EventCardLarge({ event }: EventCardLargeProps) {
   };
 
   const sportStyle = event.sport ? sportStyles[event.sport.name] || { icon: '🏃', gradient: 'from-[#0ef9b4] to-[#0dd9a0]' } : { icon: '🏃', gradient: 'from-[#0ef9b4] to-[#0dd9a0]' };
+  const fallbackSportIcon = event.sport?.icon || sportStyle.icon;
+  const imageSrc = (event.image_url || event.cover_image_url || '').trim() || null;
+  const hasImage = isRenderableImageSrc(imageSrc) && !imageError;
 
-  const hasImage = (event.image_url || event.cover_image_url) && !imageError;
   const headerBgClass = hasImage ? 'relative h-64 overflow-hidden' : 'relative h-64 overflow-hidden bg-gradient-to-br ' + sportStyle.gradient;
 
   return (
@@ -53,7 +66,7 @@ export default function EventCardLarge({ event }: EventCardLargeProps) {
           {hasImage ? (
             <>
               <img 
-                src={(event.image_url || event.cover_image_url) ?? undefined} 
+                src={imageSrc ?? undefined}
                 alt={event.title}
                 className="w-full h-full object-cover"
                 onError={() => setImageError(true)}
@@ -66,7 +79,7 @@ export default function EventCardLarge({ event }: EventCardLargeProps) {
               <div className={'absolute inset-0 bg-gradient-to-br ' + sportStyle.gradient} />
               <div className="relative z-10 flex items-center justify-center h-full">
                 <div className="text-6xl transform group-hover:scale-110 transition-transform duration-300">
-                  {sportStyle.icon}
+                  {fallbackSportIcon}
                 </div>
               </div>
             </>
@@ -144,4 +157,3 @@ export default function EventCardLarge({ event }: EventCardLargeProps) {
     </div>
   );
 }
-

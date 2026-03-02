@@ -158,7 +158,7 @@ describe('AuthProvider fast-path scaffolding', () => {
     expect(screen.getByTestId('email').textContent).toBe('b@dots.test');
   });
 
-  it('treats INITIAL_SESSION with valid session as authenticated hydration path', async () => {
+  it('treats SIGNED_IN with valid session as authenticated hydration path', async () => {
     mocks.getSession.mockResolvedValue({
       data: { session: null },
       error: null,
@@ -191,7 +191,7 @@ describe('AuthProvider fast-path scaffolding', () => {
     expect(screen.getByTestId('email').textContent).toBe('');
 
     await act(async () => {
-      await (mocks.onAuthStateChange as any)._cb('INITIAL_SESSION', {
+      await (mocks.onAuthStateChange as any)._cb('SIGNED_IN', {
         access_token: 'token-3',
         user: { email: 'c@dots.test', email_confirmed_at: '2026-02-20T00:00:00Z' },
       });

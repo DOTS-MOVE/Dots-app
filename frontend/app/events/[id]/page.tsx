@@ -20,6 +20,18 @@ export default function EventDetailPage() {
   const [loading, setLoading] = useState(true);
   const [rsvping, setRsvping] = useState(false);
   const [isParticipant, setIsParticipant] = useState(false);
+  const [heroImageError, setHeroImageError] = useState(false);
+  const isRenderableImageSrc = (value: string | null | undefined) => {
+    if (!value) return false;
+    const src = value.trim();
+    return (
+      src.startsWith('http://') ||
+      src.startsWith('https://') ||
+      src.startsWith('/') ||
+      src.startsWith('data:image/') ||
+      src.startsWith('blob:')
+    );
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -37,6 +49,7 @@ export default function EventDetailPage() {
       const eventData = await api.getEvent(eventId, { signal });
       if (signal?.aborted) return;
       setEvent(eventData);
+      setHeroImageError(false);
       setIsParticipant(eventData.participants?.some(p => p.id === user?.id) || false);
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') return;
@@ -150,6 +163,9 @@ export default function EventDetailPage() {
   };
 
   const sportStyle = event.sport ? sportStyles[event.sport.name] || { icon: '🏃', gradient: 'from-[#0ef9b4] to-[#0dd9a0]' } : { icon: '🏃', gradient: 'from-[#0ef9b4] to-[#0dd9a0]' };
+  const fallbackSportIcon = event.sport?.icon || sportStyle.icon;
+  const heroImageSrc = (event.image_url || event.cover_image_url || '').trim() || null;
+  const hasHeroImage = isRenderableImageSrc(heroImageSrc) && !heroImageError;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20 md:pb-0">
@@ -168,19 +184,21 @@ export default function EventDetailPage() {
           </svg>
           Back to Events
         </Link>
-        {event.image_url || event.cover_image_url ? (
+        {hasHeroImage ? (
           <>
             <img 
-              src={(event.image_url || event.cover_image_url) ?? undefined} 
+              src={heroImageSrc ?? undefined}
               alt={event.title}
               className="w-full h-full object-cover"
+              onError={() => setHeroImageError(true)}
+              onLoad={() => setHeroImageError(false)}
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
           </>
         ) : (
           <div className={`w-full h-full bg-gradient-to-br ${sportStyle.gradient} flex items-center justify-center`}>
             <div className="text-9xl opacity-50">
-              {sportStyle.icon}
+              {fallbackSportIcon}
             </div>
           </div>
         )}
@@ -400,4 +418,3 @@ export default function EventDetailPage() {
     </div>
   );
 }
-
