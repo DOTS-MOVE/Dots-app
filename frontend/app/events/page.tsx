@@ -130,13 +130,13 @@ export default function EventsPage() {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="flex items-center justify-between mb-10 animate-in fade-in duration-500">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-10 animate-in fade-in duration-500">
           <h2 className="text-3xl font-bold text-gray-900">
             {events.length} {events.length === 1 ? 'Event' : 'Events'} Found
           </h2>
-          <div className="flex items-center space-x-4">
+          <div className="w-full md:w-auto flex flex-col sm:flex-row gap-3 md:gap-4">
             {/* View Toggle */}
-            <div className="flex items-center bg-white rounded-xl p-1 shadow-md border border-gray-200">
+            <div className="w-full sm:w-auto flex items-center justify-center bg-white rounded-xl p-1 shadow-md border border-gray-200">
               <button
                 onClick={() => setViewMode('list')}
                 className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-300 flex items-center gap-2 ${
@@ -166,7 +166,7 @@ export default function EventsPage() {
             </div>
             <Link 
               href="/events/create" 
-              className="bg-[#0ef9b4] text-black px-6 py-2.5 rounded-xl font-semibold hover:bg-[#0dd9a0] transition-all duration-300 shadow-md hover:shadow-lg"
+              className="w-full sm:w-auto text-center bg-[#0ef9b4] text-black px-6 py-2.5 rounded-xl font-semibold whitespace-nowrap hover:bg-[#0dd9a0] transition-all duration-300 shadow-md hover:shadow-lg"
             >
               + Create Event
             </Link>
@@ -215,4 +215,3 @@ export default function EventsPage() {
     </div>
   );
 }
-
