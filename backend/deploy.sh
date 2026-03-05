@@ -29,6 +29,13 @@ gcloud run deploy ${SERVICE_NAME} \
   --max-instances 10 \
   --update-env-vars "DEBUG=False"
 
+echo "🔓 Ensuring public access (invoker role)..."
+gcloud run services add-iam-policy-binding ${SERVICE_NAME} \
+  --region ${REGION} \
+  --member=allUsers \
+  --role=roles/run.invoker \
+  --quiet 2>/dev/null || true
+
 echo "✅ Getting service URL..."
 SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} --region ${REGION} --format 'value(status.url)')
 echo ""
