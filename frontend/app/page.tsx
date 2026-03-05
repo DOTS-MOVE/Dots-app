@@ -51,6 +51,21 @@ export default function Home() {
     return filtered;
   }, [allEvents, selectedSport, searchQuery]);
 
+  const futureEvents = useMemo(() => {
+    const now = new Date();
+    return events.filter(e => new Date(e.start_time) >= now);
+  }, [events]);
+  const pastEvents = useMemo(() => {
+    const now = new Date();
+    return [...events]
+      .filter(e => new Date(e.start_time) < now)
+      .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime());
+  }, [events]);
+
+  // Featured and main lists: only future events
+  const featuredEvents = futureEvents.slice(0, 3);
+  const otherEvents = futureEvents.slice(3);
+
   useEffect(() => {
     if (searchQuery.trim() && (searchMode === 'all' || searchMode === 'people')) {
       searchPeople();
@@ -152,10 +167,6 @@ export default function Home() {
 
   // Only show profile completion when auth has resolved (avoid flash/wrong state)
   const profileIncomplete = !loading && user && user.profile_completed !== true && (!user.full_name || !user.location || !user.sports || user.sports.length === 0 || !user.goals || user.goals.length === 0);
-
-  // Get featured events (first 3)
-  const featuredEvents = events.slice(0, 3);
-  const otherEvents = events.slice(3);
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20 md:pb-0 animate-in fade-in duration-300">
@@ -362,17 +373,33 @@ export default function Home() {
           </div>
         )}
 
-        {/* Empty State - Only show when not searching */}
-        {!searchQuery.trim() && events.length === 0 && (
+        {/* Previous Events - Only show when not searching */}
+        {!searchQuery.trim() && pastEvents.length > 0 && (
+          <div className="mt-20 animate-in fade-in duration-500">
+            <h2 className="text-2xl font-bold text-gray-500 mb-10">Previous Events</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {pastEvents.map((event, index) => (
+                <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4 opacity-90" style={{ animationDelay: `${index * 50}ms` }}>
+                  <EventCardLarge event={event} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Empty State - Only show when not searching and no upcoming events */}
+        {!searchQuery.trim() && futureEvents.length === 0 && (
           <div className="text-center py-16 animate-in fade-in duration-500">
             <div className="text-6xl mb-4">🎯</div>
             <h3 className="text-2xl font-bold text-gray-900 mb-2">
-              {selectedSport ? 'No events found' : 'No events yet'}
+              {selectedSport ? 'No upcoming events found' : pastEvents.length > 0 ? 'No upcoming events' : 'No events yet'}
             </h3>
             <p className="text-gray-600 mb-6">
-              {selectedSport 
+              {selectedSport
                 ? 'Try adjusting your filters'
-                : 'Be the first to create an event!'}
+                : pastEvents.length > 0
+                  ? 'Check out previous events below or create a new one.'
+                  : 'Be the first to create an event!'}
             </p>
             <Link 
               href="/events/create" 
