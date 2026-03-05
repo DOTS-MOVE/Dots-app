@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import EventDetailPage from '@/app/events/[id]/page';
@@ -6,6 +6,9 @@ import type { Event } from '@/types';
 
 const mocks = vi.hoisted(() => ({
   getEvent: vi.fn(),
+  rsvpEvent: vi.fn(),
+  cancelRsvp: vi.fn(),
+  push: vi.fn(),
 }));
 
 vi.mock('next/link', () => ({
@@ -13,7 +16,7 @@ vi.mock('next/link', () => ({
 }));
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: mocks.push }),
   useParams: () => ({ id: '101' }),
 }));
 
@@ -24,8 +27,8 @@ vi.mock('@/lib/auth', () => ({
 vi.mock('@/lib/api', () => ({
   api: {
     getEvent: mocks.getEvent,
-    rsvpEvent: vi.fn(),
-    cancelRsvp: vi.fn(),
+    rsvpEvent: mocks.rsvpEvent,
+    cancelRsvp: mocks.cancelRsvp,
   },
 }));
 
@@ -81,6 +84,10 @@ const baseEvent: Event = {
 describe('Event detail hero fallback behavior', () => {
   beforeEach(() => {
     mocks.getEvent.mockReset();
+    mocks.rsvpEvent.mockReset();
+    mocks.cancelRsvp.mockReset();
+    mocks.push.mockReset();
+    vi.restoreAllMocks();
   });
 
   it('falls back to sport icon hero when image fields are emoji values', async () => {
@@ -116,5 +123,46 @@ describe('Event detail hero fallback behavior', () => {
     const image = document.querySelector('img');
     expect(image).not.toBeNull();
     expect(image?.getAttribute('src')).toBe('https://example.com/hero.jpg');
+  });
+
+  it('shows declined state and disables RSVP when current user was rejected', async () => {
+    mocks.getEvent.mockResolvedValue({
+      ...baseEvent,
+      host_id: 99,
+      rsvp_status: 'rejected',
+    });
+
+    render(<EventDetailPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Request declined')).toBeTruthy();
+    });
+
+    const disabledButton = screen.getByRole('button', { name: 'RSVP unavailable' }) as HTMLButtonElement;
+    expect(disabledButton.disabled).toBe(true);
+  });
+
+  it('refreshes event state once after RSVP error to prevent stale UI', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    mocks.getEvent.mockResolvedValue({
+      ...baseEvent,
+      host_id: 99,
+    });
+    mocks.rsvpEvent.mockRejectedValue(new Error("Already RSVP'd to this event"));
+
+    render(<EventDetailPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'RSVP' })).toBeTruthy();
+    });
+    const callsBeforeClick = mocks.getEvent.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'RSVP' }));
+
+    await waitFor(() => {
+      expect(mocks.rsvpEvent).toHaveBeenCalledWith(101);
+      expect(alertSpy).toHaveBeenCalledWith("Already RSVP'd to this event");
+      expect(mocks.getEvent.mock.calls.length).toBeGreaterThan(callsBeforeClick);
+    });
   });
 });

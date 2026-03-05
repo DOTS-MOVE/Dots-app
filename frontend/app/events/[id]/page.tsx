@@ -72,6 +72,7 @@ export default function EventDetailPage() {
         return;
       }
       alert(error.message || 'Failed to RSVP');
+      await loadEvent(undefined);
     } finally {
       setRsvping(false);
     }
@@ -369,12 +370,22 @@ export default function EventDetailPage() {
                         {rsvping ? 'Cancelling...' : 'Cancel Request'}
                       </button>
                     </>
+                  ) : user && event.rsvp_status === 'rejected' ? (
+                    <>
+                      <p className="text-sm text-gray-600 mb-4">The host is reviewing your RSVP.</p>
+                      <button
+                        disabled
+                        className="w-full px-6 py-4 bg-gray-200 text-gray-500 rounded-xl font-bold text-lg cursor-not-allowed"
+                      >
+                        RSVP unavailable
+                      </button>
+                    </>
                   ) : !user ? (
                     <Link
                       href={'/login?redirect=' + encodeURIComponent('/events/' + event.id)}
                       className="block w-full px-6 py-4 bg-[#0ef9b4] text-black rounded-xl font-bold text-lg hover:bg-[#0dd9a0] transition-colors text-center shadow-lg hover:shadow-xl"
                     >
-                      Sign in to Request to Join
+                      Sign in to RSVP
                     </Link>
                   ) : (
                     <button
@@ -382,7 +393,7 @@ export default function EventDetailPage() {
                       disabled={rsvping || (event.max_participants ? event.participant_count >= event.max_participants : false)}
                       className="w-full px-6 py-4 bg-[#0ef9b4] text-black rounded-xl font-bold text-lg hover:bg-[#0dd9a0] transition-colors disabled:opacity-50 shadow-lg hover:shadow-xl"
                     >
-                      {rsvping ? 'RSVPing...' : 'Request to Join'}
+                      {rsvping ? 'RSVPing...' : 'RSVP'}
                     </button>
                   )}
                   {event.max_participants && event.participant_count >= event.max_participants && !isParticipant && event.rsvp_status !== 'pending' && user && (

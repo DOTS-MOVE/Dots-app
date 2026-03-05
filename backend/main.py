@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from core.config import settings
 from core.database import get_supabase
+import logging
 from api.auth import router as auth_router
 from api.users import router as users_router
 from api.events import router as events_router
@@ -14,10 +15,18 @@ from api.waitlist import router as waitlist_router
 from api.posts import router as posts_router
 
 app = FastAPI(title="Dots API", version="1.0.0")
+logger = logging.getLogger(__name__)
 
 # Test Supabase connection on startup
 @app.on_event("startup")
 async def startup_event():
+    rsvp_mode = "approved" if settings.AUTO_APPROVE_RSVPS else "pending"
+    logger.info(
+        "RSVP startup mode: AUTO_APPROVE_RSVPS=%s (new RSVPs default to '%s')",
+        settings.AUTO_APPROVE_RSVPS,
+        rsvp_mode,
+    )
+    print(f"RSVP startup mode: AUTO_APPROVE_RSVPS={settings.AUTO_APPROVE_RSVPS} (new RSVPs default to '{rsvp_mode}')")
     try:
         print("Testing Supabase connection...")
         supabase = get_supabase()
@@ -56,4 +65,3 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
-
