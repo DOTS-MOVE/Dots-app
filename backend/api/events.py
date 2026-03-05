@@ -4,6 +4,7 @@ from typing import Optional, List
 from datetime import datetime
 import logging
 from core.database import get_supabase
+from core.config import settings
 from api.auth import get_current_user, get_current_user_optional
 from schemas.event import EventCreate, EventUpdate, EventResponse, EventDetail
 
@@ -689,8 +690,8 @@ async def rsvp_event(
             # If query fails, continue (might be a connection issue)
             pass
     
-    # All RSVPs require manual host approval - no auto-approve
-    rsvp_status = "pending"
+    # Feature-flagged RSVP mode for beta rollout.
+    rsvp_status = "approved" if settings.AUTO_APPROVE_RSVPS else "pending"
     
     # Create RSVP
     try:
