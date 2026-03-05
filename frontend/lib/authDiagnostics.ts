@@ -66,6 +66,10 @@ function normalizeStateWindow(nowMs: number) {
 }
 
 function emit(level: LogLevel, event: string, context: AuthEventContext) {
+  // In development, skip 'log' level to avoid console noise when not yet logged in (expected 401s)
+  const isDev = typeof process !== 'undefined' && process.env.NODE_ENV === 'development';
+  if (isDev && level === 'log') return;
+
   const payload = {
     event,
     method: context.method,
