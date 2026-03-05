@@ -332,9 +332,11 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO postgres, an
 -- ============================================================================
 
 -- Function to handle new user creation from Supabase Auth
--- This automatically creates a record in public.users when a user signs up via Supabase Auth
+-- This automatically creates a record in public.users and public.subscriptions when a user signs up via Supabase Auth
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
+DECLARE
+    new_user_id INTEGER;
 BEGIN
     INSERT INTO public.users (email, full_name, age, bio, location, avatar_url, cover_image_url, is_discoverable, profile_completed)
     VALUES (
@@ -354,7 +356,14 @@ BEGIN
         bio = COALESCE(EXCLUDED.bio, users.bio),
         location = COALESCE(EXCLUDED.location, users.location),
         avatar_url = COALESCE(EXCLUDED.avatar_url, users.avatar_url),
-        cover_image_url = COALESCE(EXCLUDED.cover_image_url, users.cover_image_url);
+        cover_image_url = COALESCE(EXCLUDED.cover_image_url, users.cover_image_url)
+    RETURNING id INTO new_user_id;
+
+    -- Ensure a free subscription exists for this user (idempotent)
+    INSERT INTO public.subscriptions (user_id, tier)
+    VALUES (new_user_id, 'free')
+    ON CONFLICT (user_id) DO NOTHING;
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
