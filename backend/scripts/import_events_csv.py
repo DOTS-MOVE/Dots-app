@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 BACKEND_DIR = Path(__file__).parent.parent.resolve()
 os.chdir(BACKEND_DIR)
@@ -23,7 +24,7 @@ os.chdir(BACKEND_DIR)
 from supabase import create_client
 
 
-REQUIRED_HEADERS = {"title", "location", "start_time"}
+REQUIRED_HEADERS = {"title", "location"}
 OPTIONAL_HEADERS = {
     "description",
     "end_time",
@@ -36,6 +37,12 @@ OPTIONAL_HEADERS = {
     "sport_id",
     "host_email",
     "host_id",
+    "start date",
+    "start time in ET",
+    "end date",
+    "end time in ET",
+    "notes",
+    "belongs to:",
 }
 
 
@@ -80,6 +87,16 @@ def parse_args() -> argparse.Namespace:
         "--verbose",
         action="store_true",
         help="Print extra diagnostics.",
+    )
+    parser.add_argument(
+        "--legacy-mode",
+        action="store_true",
+        help="Enable legacy date/time columns (start date/start time in ET, end date/end time in ET).",
+    )
+    parser.add_argument(
+        "--timezone",
+        default="America/New_York",
+        help="Timezone used for legacy ET columns (default: America/New_York).",
     )
     return parser.parse_args()
 
@@ -130,8 +147,18 @@ def load_env_file(path: Path) -> dict[str, str]:
 def resolve_supabase_credentials() -> tuple[str, str]:
     env_local = load_env_file(BACKEND_DIR / ".env.local")
     env_fallback = load_env_file(BACKEND_DIR / ".env")
-    supabase_url = os.getenv("SUPABASE_URL") or env_local.get("SUPABASE_URL") or env_fallback.get("SUPABASE_URL") or ""
-    supabase_key = os.getenv("SUPABASE_KEY") or env_local.get("SUPABASE_KEY") or env_fallback.get("SUPABASE_KEY") or ""
+    supabase_url = (
+        os.getenv("SUPABASE_URL")
+        or env_local.get("SUPABASE_URL")
+        or env_fallback.get("SUPABASE_URL")
+        or ""
+    )
+    supabase_key = (
+        os.getenv("SUPABASE_KEY")
+        or env_local.get("SUPABASE_KEY")
+        or env_fallback.get("SUPABASE_KEY")
+        or ""
+    )
     return supabase_url, supabase_key
 
 
@@ -177,6 +204,96 @@ def parse_datetime_utc(value: str, field_name: str) -> datetime:
         # Assume UTC for naive values to keep import deterministic.
         dt = dt.replace(tzinfo=UTC)
     return dt.astimezone(UTC)
+
+
+def parse_date_component(value: str) -> datetime.date:
+    value = value.strip()
+    if not value:
+        raise ValueError("date is required")
+
+    # Normalize spacing and commas for easier parsing.
+    cleaned = " ".join(value.replace(",", " ").split())
+    date_formats_with_year = [
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+        "%m-%d-%Y",
+        "%m/%d/%Y",
+        "%m/%d/%y",
+        "%d-%m-%Y",
+        "%d/%m/%Y",
+        "%d/%m/%y",
+        "%B %d %Y",
+        "%b %d %Y",
+    ]
+    date_formats_without_year = [
+        "%m-%d",
+        "%m/%d",
+        "%B %d",
+        "%b %d",
+    ]
+
+    last_error: Exception | None = None
+    for fmt in date_formats_with_year:
+        try:
+            return datetime.strptime(cleaned, fmt).date()
+        except ValueError as exc:
+            last_error = exc
+            continue
+
+    current_year = datetime.now(UTC).year
+    for fmt in date_formats_without_year:
+        try:
+            parsed = datetime.strptime(cleaned, fmt).date()
+            return parsed.replace(year=current_year)
+        except ValueError as exc:
+            last_error = exc
+
+    raise ValueError(f"Invalid date value: {value}") from last_error
+
+
+def parse_time_component(value: str) -> datetime.time:
+    value = value.strip().upper()
+    if not value:
+        raise ValueError("time is required")
+
+    value = " ".join(value.split())
+    if len(value) >= 3 and value[-2:] in {"AM", "PM"} and value[-3] != " ":
+        value = value[:-2] + " " + value[-2:]
+
+    time_formats = [
+        "%I:%M %p",
+        "%H:%M",
+        "%I:%M:%S %p",
+        "%H:%M:%S",
+        "%I%p",
+        "%I %p",
+        "%H",
+    ]
+    last_error: Exception | None = None
+    for fmt in time_formats:
+        try:
+            return datetime.strptime(value, fmt).time()
+        except ValueError as exc:
+            last_error = exc
+
+    raise ValueError(f"Invalid time value: {value}") from last_error
+
+
+def parse_legacy_datetime(date_value: str, time_value: str, tz_name: str, field_name: str) -> datetime:
+    if not date_value.strip() or not time_value.strip():
+        raise ValueError(
+            f"{field_name} requires both date and time columns (e.g., '{field_name} date' and '{field_name} time in ET')"
+        )
+
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception as exc:
+        raise ValueError(f"Invalid timezone '{tz_name}'. Use an IANA timezone like America/New_York.") from exc
+
+    parsed_date = parse_date_component(date_value)
+    parsed_time = parse_time_component(time_value)
+    local_dt = datetime.combine(parsed_date, parsed_time).replace(tzinfo=tz)
+    return local_dt.astimezone(UTC)
 
 
 def normalize_text(value: str) -> str:
@@ -267,25 +384,39 @@ def collect_reference_requests(rows: list[dict[str, str]]) -> tuple[set[int], se
     return sport_ids, sport_names, host_ids, host_emails
 
 
-def load_csv_rows(file_path: Path) -> list[dict[str, str]]:
+def load_csv_rows(file_path: Path, legacy_mode: bool = False, timezone: str = "America/New_York") -> list[dict[str, str]]:
     with file_path.open("r", newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle)
         if not reader.fieldnames:
-            raise RuntimeError("CSV file has no headers.")
+            raise RuntimeError("CSV has no headers.")
         headers = {header.strip() for header in reader.fieldnames if header}
         missing = REQUIRED_HEADERS - headers
         if missing:
             raise RuntimeError(f"CSV missing required headers: {', '.join(sorted(missing))}")
+        if "start_time" not in headers and not legacy_mode:
+            raise RuntimeError(
+                "CSV requires start_time, or use --legacy-mode with start date/start time in ET columns."
+            )
+        if "start_time" not in headers and legacy_mode:
+            has_start_date = "start date" in headers
+            has_start_time = "start time in ET" in headers
+            if not (has_start_date and has_start_time):
+                raise RuntimeError(
+                    "CSV uses legacy mode but is missing either 'start date' or 'start time in ET'. "
+                    f"Provide both, or add 'start_time'. Current timezone: {timezone}."
+                )
         if "sport" not in headers and "sport_id" not in headers:
             raise RuntimeError("CSV requires either 'sport' or 'sport_id' column.")
         if "host_email" not in headers and "host_id" not in headers:
             raise RuntimeError("CSV requires either 'host_email' or 'host_id' column.")
+
         unknown = headers - REQUIRED_HEADERS - OPTIONAL_HEADERS
         if unknown:
             print(f"Warning: unrecognized CSV headers ignored: {', '.join(sorted(unknown))}")
+
         rows = []
         for row in reader:
-            # Normalize keys/values to avoid trailing-space column names and values
+            # Normalize keys/values to avoid trailing-space column names and values.
             cleaned = {(k or "").strip(): (v or "").strip() for k, v in row.items()}
             rows.append(cleaned)
     if not rows:
@@ -298,9 +429,17 @@ def parse_rows(
     sport_lookup: dict[str, tuple[int, str | None]],
     host_lookup: dict[str, int],
     strict: bool,
-) -> tuple[list[ParsedRow], list[RowError]]:
+    legacy_mode: bool,
+    legacy_timezone: str,
+) -> tuple[list[ParsedRow], list[RowError], dict[str, int]]:
     valid: list[ParsedRow] = []
     errors: list[RowError] = []
+    stats = {
+        "canonical_start_count": 0,
+        "legacy_start_count": 0,
+        "canonical_end_count": 0,
+        "legacy_end_count": 0,
+    }
 
     for idx, row in enumerate(raw_rows, start=2):  # Header is row 1
         try:
@@ -311,9 +450,44 @@ def parse_rows(
             if not location:
                 raise ValueError("location is required")
 
-            start_time = parse_datetime_utc(row.get("start_time", ""), "start_time")
+            start_time_raw = row.get("start_time", "").strip()
+            if start_time_raw:
+                start_time = parse_datetime_utc(start_time_raw, "start_time")
+                stats["canonical_start_count"] += 1
+            elif legacy_mode:
+                start_time = parse_legacy_datetime(
+                    row.get("start date", ""),
+                    row.get("start time in ET", ""),
+                    legacy_timezone,
+                    "start_time",
+                )
+                stats["legacy_start_count"] += 1
+            else:
+                raise ValueError(
+                    "start_time is required. Provide start_time (ISO-8601 UTC) or run with --legacy-mode "
+                    "and include start date/start time in ET."
+                )
+
             end_time_raw = row.get("end_time", "").strip()
-            end_time = parse_datetime_utc(end_time_raw, "end_time") if end_time_raw else None
+            if end_time_raw:
+                end_time = parse_datetime_utc(end_time_raw, "end_time")
+                stats["canonical_end_count"] += 1
+            elif legacy_mode:
+                end_date_raw = row.get("end date", "").strip()
+                end_time_local_raw = row.get("end time in ET", "").strip()
+                if end_date_raw or end_time_local_raw:
+                    end_time = parse_legacy_datetime(
+                        end_date_raw,
+                        end_time_local_raw,
+                        legacy_timezone,
+                        "end_time",
+                    )
+                    stats["legacy_end_count"] += 1
+                else:
+                    end_time = None
+            else:
+                end_time = None
+
             if end_time and end_time < start_time:
                 raise ValueError("end_time must be greater than or equal to start_time")
 
@@ -350,8 +524,11 @@ def parse_rows(
             max_participants_raw = row.get("max_participants", "").strip()
             max_participants = None
             if max_participants_raw:
-                max_participants = int(max_participants_raw)
-                if max_participants <= 0:
+                if max_participants_raw.strip().lower() in {"unlimited", "any", "none"}:
+                    max_participants = None
+                else:
+                    max_participants = int(max_participants_raw)
+                if max_participants is not None and max_participants <= 0:
                     raise ValueError("max_participants must be positive")
 
             is_public = parse_bool(row.get("is_public"), default=True)
@@ -393,7 +570,7 @@ def parse_rows(
             if strict:
                 break
 
-    return valid, errors
+    return valid, errors, stats
 
 
 def fetch_existing_event_keys(supabase: Any, parsed_rows: list[ParsedRow]) -> set[tuple[str, int, int, str, str]]:
@@ -467,7 +644,11 @@ def main() -> int:
         return 1
 
     try:
-        raw_rows = load_csv_rows(csv_path)
+        raw_rows = load_csv_rows(
+            csv_path,
+            legacy_mode=args.legacy_mode,
+            timezone=args.timezone,
+        )
     except Exception as exc:
         print(f"❌ Failed to read CSV: {exc}")
         return 1
@@ -480,7 +661,14 @@ def main() -> int:
         print(f"❌ Failed loading sport/user references: {exc}")
         return 1
 
-    parsed_rows, row_errors = parse_rows(raw_rows, sport_lookup, host_lookup, strict=args.strict)
+    parsed_rows, row_errors, parse_stats = parse_rows(
+        raw_rows,
+        sport_lookup,
+        host_lookup,
+        strict=args.strict,
+        legacy_mode=args.legacy_mode,
+        legacy_timezone=args.timezone,
+    )
     if args.strict and row_errors:
         first = row_errors[0]
         print(f"❌ Strict mode failed at row {first.row_number}: {first.message}")
@@ -502,6 +690,12 @@ def main() -> int:
     print(f"Invalid rows: {len(row_errors)}")
     print(f"Already existing: {len(skipped_existing)}")
     print(f"Pending insert: {len(to_insert)}")
+    if args.legacy_mode:
+        print(
+            "Legacy ET datetime usage: "
+            f"start(canonical={parse_stats['canonical_start_count']}, legacy={parse_stats['legacy_start_count']}), "
+            f"end(canonical={parse_stats['canonical_end_count']}, legacy={parse_stats['legacy_end_count']})"
+        )
 
     inserted = 0
     insert_errors = 0
