@@ -1,34 +1,26 @@
-from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Header
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from supabase import Client
-from sqlalchemy.orm import Session
-from core.database import get_supabase, get_db
-from core.security import verify_password, get_password_hash, create_access_token
-from core.config import settings
-from schemas.auth import UserRegister, Token
-from models.user import User
+from core.database import get_supabase
 from typing import Optional
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
+http_bearer = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
     authorization: Optional[str] = Header(None),
-    token: Optional[str] = Depends(oauth2_scheme)
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer)
 ) -> dict:
     """Get current user from Supabase JWT token"""
-    # Get token from header or oauth2_scheme
     token_str = None
     if authorization:
-        # Extract token from "Bearer <token>"
         parts = authorization.split()
         if len(parts) == 2 and parts[0].lower() == "bearer":
             token_str = parts[1]
-    elif token:
-        token_str = token
+    elif credentials:
+        token_str = credentials.credentials
     
     if not token_str:
         raise HTTPException(
@@ -79,19 +71,16 @@ def get_current_user(
 
 def get_current_user_optional(
     authorization: Optional[str] = Header(None),
-    token: Optional[str] = Depends(oauth2_scheme)
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer)
 ) -> Optional[dict]:
     """Get current user from Supabase JWT token (optional - returns None if not authenticated)"""
-    # Get token from header or oauth2_scheme
     token_str = None
     if authorization:
-        # Extract token from "Bearer <token>"
         parts = authorization.split()
         if len(parts) == 2 and parts[0].lower() == "bearer":
             token_str = parts[1]
-    elif token:
-        token_str = token
-    
+    elif credentials:
+        token_str = credentials.credentials    
     if not token_str:
         return None
     
@@ -120,66 +109,4 @@ def get_current_user_optional(
     except Exception:
         # Return None on any error for optional auth
         return None
-
-
-@router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
-async def register(user_data: UserRegister, db: Session = Depends(get_db)):
-    # Check if user already exists
-    existing_user = db.query(User).filter(User.email == user_data.email).first()
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
-    
-    # Create new user
-    hashed_password = get_password_hash(user_data.password)
-    new_user = User(
-        email=user_data.email,
-        hashed_password=hashed_password,
-        full_name=user_data.full_name
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    
-    # Create subscription for new user
-    from models.subscription import Subscription, SubscriptionTier
-    subscription = Subscription(
-        user_id=new_user.id,
-        tier=SubscriptionTier.FREE
-    )
-    db.add(subscription)
-    db.commit()
-    
-    # Generate token
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": new_user.email}, expires_delta=access_token_expires
-    )
-    
-    return {"access_token": access_token, "token_type": "bearer"}
-
-
-@router.post("/login", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Inactive user"
-        )
-    
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.email}, expires_delta=access_token_expires
-    )
-    
-    return {"access_token": access_token, "token_type": "bearer"}
 
