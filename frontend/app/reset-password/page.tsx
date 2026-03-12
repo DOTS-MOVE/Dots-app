@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Logo from '@/components/Logo';
 import { supabase } from '@/lib/supabase';
+import { AuthFormSkeleton } from '@/components/SkeletonLoader';
 
 function ResetPasswordPageContent() {
   const [password, setPassword] = useState('');
@@ -282,13 +283,7 @@ export default function ResetPasswordPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-white flex flex-col items-center justify-center px-4">
-        <div className="w-full max-w-sm space-y-8">
-          <div className="flex flex-col items-center space-y-3">
-            <Logo size="large" />
-            <p className="text-gray-700 text-sm font-medium">Meet. Move. Motivate.</p>
-          </div>
-          <div className="text-center text-gray-500">Loading...</div>
-        </div>
+        <AuthFormSkeleton />
       </div>
     }>
       <ResetPasswordPageContent />

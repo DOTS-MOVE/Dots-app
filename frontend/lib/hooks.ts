@@ -62,7 +62,7 @@ export function useBuddies() {
 /** Conversations - cache for tab switching. Only fetches when user is authenticated. */
 export function useConversations() {
   const { user } = useAuth();
-  const { data, error, isLoading, mutate } = useSWR<Conversation[]>(
+  const { data, error, isLoading, isValidating, mutate } = useSWR<Conversation[]>(
     user ? 'conversations' : null,
     () => api.getConversations(),
     {
@@ -76,5 +76,5 @@ export function useConversations() {
       },
     }
   );
-  return { conversations: data ?? [], isLoading, error, mutate };
+  return { conversations: data ?? [], isLoading, isValidating, error, mutate };
 }

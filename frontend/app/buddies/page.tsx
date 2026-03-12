@@ -11,14 +11,14 @@ import BottomNav from '@/components/BottomNav';
 import BuddyGrid from '@/components/BuddyGrid';
 import ConnectionMessageModal from '@/components/ConnectionMessageModal';
 import ProfileAvatar from '@/components/ProfileAvatar';
-import { BuddiesSkeleton } from '@/components/SkeletonLoader';
+import { BuddiesSkeleton, DiscoverBuddiesSkeleton } from '@/components/SkeletonLoader';
 import { useBuddies } from '@/lib/hooks';
 import { api } from '@/lib/api';
 import { Buddy } from '@/types';
 import Link from 'next/link';
 
 function BuddiesPageContent() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { buddies, isLoading: isBuddiesLoading, error: buddiesError, mutate: mutateBuddies } = useBuddies();
@@ -96,7 +96,7 @@ function BuddiesPageContent() {
     }
   }, [loadingMore, hasMore, suggested.length, discoveryDisabled]);
 
-  const loading = !!user && ((isBuddiesLoading && buddies.length === 0) || (activeTab === 'discover' && isSuggestedLoading && suggested.length === 0));
+  const loading = !!user && (isBuddiesLoading && buddies.length === 0);
 
   // Load more buddies when approaching the end
   useEffect(() => {
@@ -273,10 +273,8 @@ function BuddiesPageContent() {
       {/* Discover Tab */}
       {activeTab === 'discover' && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          {isSuggestedLoading && suggested.length === 0 ? (
-            <div className="text-center py-16 bg-white rounded-3xl shadow-lg">
-              <div className="text-gray-600">Loading buddies...</div>
-            </div>
+          {(authLoading && !user) || (user && isSuggestedLoading && suggested.length === 0) ? (
+            <DiscoverBuddiesSkeleton />
           ) : suggested.length === 0 ? (
             <div className="text-center py-16 bg-white rounded-3xl shadow-lg px-6">
               <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center">
@@ -371,7 +369,11 @@ function BuddiesPageContent() {
                     />
                   </div>
                   {loadingMore && (
-                    <p className="text-xs text-gray-500 mt-2">Loading more buddies...</p>
+                    <div className="flex items-center justify-center gap-2 mt-2">
+                      <div className="h-2 w-2 rounded-full bg-gray-300 animate-pulse" />
+                      <div className="h-2 w-2 rounded-full bg-gray-300 animate-pulse" style={{ animationDelay: '0.15s' }} />
+                      <div className="h-2 w-2 rounded-full bg-gray-300 animate-pulse" style={{ animationDelay: '0.3s' }} />
+                    </div>
                   )}
                   {!hasMore && currentIndex >= suggested.length - 1 && (
                     <p className="text-xs text-gray-500 mt-2">No more buddies available</p>

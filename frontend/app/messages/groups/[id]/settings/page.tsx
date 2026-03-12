@@ -8,6 +8,7 @@ import BottomNav from '@/components/BottomNav';
 import { api } from '@/lib/api';
 import { GroupChat, User } from '@/types';
 import Link from 'next/link';
+import { GroupSettingsPageSkeleton } from '@/components/SkeletonLoader';
 
 export default function GroupSettingsPage() {
   const { user } = useAuth();
@@ -79,8 +80,8 @@ export default function GroupSettingsPage() {
     return (
       <div className="min-h-screen bg-gray-50">
         <Navbar />
-        <div className="flex items-center justify-center h-64">
-          <div className="text-gray-600">Loading...</div>
+        <div className="pt-16">
+          <GroupSettingsPageSkeleton />
         </div>
         <BottomNav />
       </div>

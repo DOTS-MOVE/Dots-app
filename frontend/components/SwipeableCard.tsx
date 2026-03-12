@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import PhotoGallery from './PhotoGallery';
 import ProfileAvatar from './ProfileAvatar';
+import { IconCheck, IconMapPin, IconCalendar, IconTarget } from '@/components/Icons';
 
 interface SwipeableCardProps {
   user: {
@@ -150,7 +151,7 @@ export default function SwipeableCard({ user, score, onSwipe, onViewProfile, ind
             className="absolute inset-0 bg-[#0ef9b4]/20 flex items-center justify-center z-10 rounded-3xl"
             style={{ opacity: getSwipeOpacity() }}
           >
-            <div className="text-6xl font-bold text-[#0ef9b4] transform rotate-12">✓</div>
+            <div className="text-6xl font-bold text-[#0ef9b4] transform rotate-12"><IconCheck className="w-16 h-16" /></div>
           </div>
         )}
         {position.x < -50 && (
@@ -219,7 +220,7 @@ export default function SwipeableCard({ user, score, onSwipe, onViewProfile, ind
               )}
               {user.location && (
                 <div className="flex items-center text-gray-600">
-                  <span className="text-base mr-1">📍</span>
+                  <IconMapPin className="w-4 h-4 mr-1 flex-shrink-0" />
                   <span className="text-base">{user.location}</span>
                 </div>
               )}
@@ -229,7 +230,7 @@ export default function SwipeableCard({ user, score, onSwipe, onViewProfile, ind
             <div className="flex items-center gap-6 mb-4 pb-4 border-b border-gray-200">
               {user.event_count !== undefined && (
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">📅</span>
+                  <IconCalendar className="w-5 h-5 text-gray-600 flex-shrink-0" />
                   <div>
                     <div className="text-lg font-bold text-gray-900">{user.event_count}</div>
                     <div className="text-xs text-gray-500">Events</div>
@@ -247,7 +248,7 @@ export default function SwipeableCard({ user, score, onSwipe, onViewProfile, ind
               )}
               {user.goals && user.goals.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">🎯</span>
+                  <IconTarget className="w-5 h-5 text-gray-600 flex-shrink-0" />
                   <div>
                     <div className="text-lg font-bold text-gray-900">{user.goals.length}</div>
                     <div className="text-xs text-gray-500">Goals</div>

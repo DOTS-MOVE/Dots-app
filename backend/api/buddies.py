@@ -63,7 +63,7 @@ async def get_suggested_buddies(
     except Exception:
         current_user["goals"] = []
     
-    all_buddies = find_potential_buddies(current_user, supabase, limit=None, min_score=0.0)
+    all_buddies = find_potential_buddies(current_user, supabase, limit=offset + limit, min_score=0.0)
     paginated_buddies = all_buddies[offset:offset + limit]
     if not paginated_buddies:
         return []
@@ -159,6 +159,43 @@ async def get_suggested_buddies(
             "score": m["score"]
         })
     return result
+
+
+@router.get("/status")
+async def get_buddy_status(
+    user_id: int = Query(..., description="Other user ID to check connection status with"),
+    current_user: dict = Depends(get_current_user)
+):
+    """Get connection status between current user and another user. Returns { status: 'none' | 'pending' | 'accepted' | 'rejected' }."""
+    try:
+        supabase: Client = get_supabase()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Supabase connection error: {str(e)}"
+        )
+    current_user_id = current_user.get("id")
+    if not current_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User ID not found"
+        )
+    if user_id == current_user_id:
+        return {"status": "none"}
+    try:
+        q1 = supabase.table("buddies").select("status").eq("user1_id", current_user_id).eq("user2_id", user_id).limit(1).execute()
+        if q1.data and len(q1.data) > 0:
+            return {"status": q1.data[0].get("status") or "pending"}
+        q2 = supabase.table("buddies").select("status").eq("user1_id", user_id).eq("user2_id", current_user_id).limit(1).execute()
+        if q2.data and len(q2.data) > 0:
+            return {"status": q2.data[0].get("status") or "pending"}
+        return {"status": "none"}
+    except Exception:
+        logger.exception("Failed to get buddy status", extra={"current_user_id": current_user_id, "user_id": user_id})
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service temporarily unavailable"
+        )
 
 
 @router.post("", response_model=BuddyResponse, status_code=status.HTTP_201_CREATED)

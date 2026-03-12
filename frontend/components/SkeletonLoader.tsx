@@ -222,6 +222,152 @@ export function RSVPsSkeleton() {
   );
 }
 
+/** Inline button-sized skeleton (e.g. Connect / Loading status) */
+export function ButtonSkeleton({ className = '' }: { className?: string }) {
+  return <Skeleton className={`h-9 w-24 rounded-lg ${className}`} />;
+}
+
+/** Centered auth pages (login, forgot-password, reset) Suspense fallback */
+export function AuthFormSkeleton() {
+  return (
+    <div className="w-full max-w-sm space-y-8 animate-pulse">
+      <div className="flex flex-col items-center space-y-3">
+        <Skeleton className="h-12 w-32 rounded-lg" />
+        <Skeleton className="h-4 w-48" />
+      </div>
+      <div className="space-y-4">
+        <Skeleton className="h-12 w-full rounded-lg" />
+        <Skeleton className="h-12 w-full rounded-lg" />
+        <Skeleton className="h-12 w-full rounded-lg" />
+      </div>
+      <div className="flex justify-center gap-4">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-4 w-28" />
+      </div>
+    </div>
+  );
+}
+
+/** Group settings page while loading */
+export function GroupSettingsPageSkeleton() {
+  return (
+    <div className="max-w-4xl mx-auto px-4 py-6 space-y-6 animate-pulse">
+      <div className="flex items-center space-x-4">
+        <Skeleton className="h-5 w-16" />
+        <Skeleton className="h-8 w-48" />
+      </div>
+      <div className="bg-white rounded-3xl shadow-lg p-6">
+        <div className="flex items-center space-x-4 mb-6">
+          <Skeleton className="w-20 h-20 rounded-full flex-shrink-0" />
+          <div className="flex-1 space-y-2">
+            <Skeleton className="h-7 w-3/4" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
+        </div>
+      </div>
+      <div className="bg-white rounded-3xl shadow-lg p-6">
+        <div className="flex justify-between mb-4">
+          <Skeleton className="h-6 w-32" />
+          <Skeleton className="h-10 w-28 rounded-xl" />
+        </div>
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="flex items-center justify-between p-3">
+              <div className="flex items-center space-x-3">
+                <Skeleton className="w-12 h-12 rounded-full" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="bg-white rounded-3xl shadow-lg p-6">
+        <Skeleton className="h-6 w-28 mb-4" />
+        <Skeleton className="h-12 w-32 rounded-xl" />
+      </div>
+    </div>
+  );
+}
+
+/** Create event / form page loading */
+export function CreateEventPageSkeleton() {
+  return (
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-pulse">
+      <div className="flex items-center gap-2">
+        <Skeleton className="h-5 w-5" />
+        <Skeleton className="h-5 w-32" />
+      </div>
+      <Skeleton className="h-9 w-48" />
+      <div className="bg-white shadow rounded-lg p-6 space-y-6">
+        <FormSkeleton />
+      </div>
+    </div>
+  );
+}
+
+/** Map placeholder while mounting */
+export function MapSkeleton({ className = '' }: { className?: string }) {
+  return (
+    <div className={`w-full h-[600px] rounded-3xl overflow-hidden animate-pulse bg-gray-200 ${className}`}>
+      <div className="w-full h-full flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Skeleton className="w-12 h-12 rounded-full" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Discover buddies tab loading (card stack area) */
+export function DiscoverBuddiesSkeleton() {
+  return (
+    <div className="text-center py-16 bg-white rounded-3xl shadow-lg px-6">
+      <div className="max-w-sm mx-auto">
+        <Skeleton className="h-80 w-full rounded-2xl mx-auto mb-6" />
+        <div className="flex justify-center gap-2 mb-4">
+          <Skeleton className="h-10 w-24 rounded-xl" />
+          <Skeleton className="h-10 w-24 rounded-xl" />
+        </div>
+        <Skeleton className="h-4 w-48 mx-auto" />
+      </div>
+    </div>
+  );
+}
+
+/** Message list loading (right pane) */
+export function MessageListSkeleton() {
+  return (
+    <div className="flex-1 overflow-y-auto p-6 space-y-4 animate-pulse">
+      <div className="flex justify-start">
+        <Skeleton className="h-10 w-48 rounded-2xl rounded-bl-none" />
+      </div>
+      <div className="flex justify-end">
+        <Skeleton className="h-10 w-56 rounded-2xl rounded-br-none" />
+      </div>
+      <div className="flex justify-start">
+        <Skeleton className="h-10 w-40 rounded-2xl rounded-bl-none" />
+      </div>
+      <div className="flex justify-end">
+        <Skeleton className="h-12 w-64 rounded-2xl rounded-br-none" />
+      </div>
+    </div>
+  );
+}
+
+/** Inline chips loading (sports / goals in forms) */
+export function ChipsSkeleton({ count = 6 }: { count?: number }) {
+  const widths = ['w-20', 'w-24', 'w-28', 'w-20', 'w-32', 'w-24'];
+  return (
+    <div className="flex flex-wrap gap-2">
+      {Array.from({ length: count }).map((_, i) => (
+        <Skeleton key={i} className={`h-10 rounded-full flex-shrink-0 ${widths[i % widths.length]}`} />
+      ))}
+    </div>
+  );
+}
+
 export function MessagesSkeleton() {
   return (
     <div className="max-w-7xl mx-auto h-[calc(100vh-4rem)] flex bg-white rounded-3xl shadow-2xl overflow-hidden m-4">

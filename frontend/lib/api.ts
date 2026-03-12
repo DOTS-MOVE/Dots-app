@@ -946,6 +946,36 @@ export class ApiClient {
     }
   }
 
+  /** Get connection status with a single user (for profile page). Lightweight alternative to loading full buddies list. */
+  async getBuddyStatus(otherUserId: number, opts?: { signal?: AbortSignal }): Promise<{ status: 'none' | 'pending' | 'accepted' | 'rejected' }> {
+    const token = await this.getToken();
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+    if (opts?.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const url = `${this.baseUrl}/buddies/status?user_id=${encodeURIComponent(otherUserId)}`;
+    const fetchPromise = fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` },
+      signal: opts?.signal,
+    });
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), 8000)
+    );
+    const response = await Promise.race([fetchPromise, timeoutPromise]) as Response;
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      let detail = 'Failed to fetch buddy status';
+      try {
+        const err = JSON.parse(errorText);
+        detail = err.detail || detail;
+      } catch {
+        detail = errorText || detail;
+      }
+      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    }
+    return response.json();
+  }
+
   async getBuddies(status?: string, opts?: { signal?: AbortSignal }): Promise<Buddy[]> {
     const token = await this.getToken();
     if (!token) {

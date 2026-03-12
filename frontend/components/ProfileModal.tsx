@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { IconMapPin, IconCheck } from '@/components/Icons';
 
 interface ProfileModalProps {
   user: {
@@ -85,7 +86,7 @@ export default function ProfileModal({ user, score, isOpen, onClose }: ProfileMo
             </div>
             {user.location && (
               <div className="flex items-center text-gray-600">
-                <span className="text-lg mr-2">📍</span>
+                <IconMapPin className="w-5 h-5 mr-2 flex-shrink-0" />
                 <span className="text-base">{user.location}</span>
               </div>
             )}
@@ -139,8 +140,8 @@ export default function ProfileModal({ user, score, isOpen, onClose }: ProfileMo
             <div className="bg-[#E6F9F4] rounded-2xl p-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-2">Why you're a great buddy:</h3>
               <ul className="text-sm text-gray-600 space-y-1">
-                {user.location && <li>✓ Located nearby</li>}
-                {user.sports && user.sports.length > 0 && <li>✓ Shared sports interests</li>}
+                {user.location && <li className="flex items-center gap-2"><IconCheck className="w-4 h-4 flex-shrink-0" /> Located nearby</li>}
+                {user.sports && user.sports.length > 0 && <li className="flex items-center gap-2"><IconCheck className="w-4 h-4 flex-shrink-0" /> Shared sports interests</li>}
               </ul>
             </div>
           </div>

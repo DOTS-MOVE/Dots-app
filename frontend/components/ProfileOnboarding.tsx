@@ -7,6 +7,8 @@ import { api } from '@/lib/api';
 import { Sport, Goal, UserPhoto } from '@/types';
 import Image from 'next/image';
 import { uploadProfileImage } from '@/lib/storage';
+import { FormSkeleton } from '@/components/SkeletonLoader';
+import { IconCheck } from '@/components/Icons';
 
 interface ProfileOnboardingProps {
   onComplete: () => void;
@@ -397,9 +399,8 @@ export default function ProfileOnboarding({ onComplete }: ProfileOnboardingProps
     return (
       <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
         <div className="min-h-screen flex items-center justify-center p-4">
-          <div className="text-center">
-            <div className="w-16 h-16 border-4 border-[#0ef9b4] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading your profile...</p>
+          <div className="max-w-2xl w-full">
+            <FormSkeleton />
           </div>
         </div>
       </div>
@@ -444,7 +445,7 @@ export default function ProfileOnboarding({ onComplete }: ProfileOnboardingProps
                       : 'bg-gray-200 text-gray-500'
                   }`}
                 >
-                  {step > s ? '✓' : s}
+                  {step > s ? <IconCheck className="w-5 h-5" /> : s}
                 </div>
                 {s < 4 && (
                   <div

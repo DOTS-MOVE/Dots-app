@@ -12,11 +12,10 @@ import PostCard from '@/components/PostCard';
 import CreatePostForm from '@/components/CreatePostForm';
 import ProfileAvatar from '@/components/ProfileAvatar';
 import EventManagementMenu from '@/components/EventManagementMenu';
-import { ProfileHeaderSkeleton, PostSkeleton, EventSkeleton, FormSkeleton } from '@/components/SkeletonLoader';
+import { ProfileHeaderSkeleton, PostSkeleton, EventSkeleton, FormSkeleton, ButtonSkeleton, ChipsSkeleton } from '@/components/SkeletonLoader';
 import ConnectionMessageModal from '@/components/ConnectionMessageModal';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Buddy } from '@/types';
 import { uploadProfileImage } from '@/lib/storage';
 
 type Tab = 'posts' | 'events' | 'edit';
@@ -70,9 +69,9 @@ function ProfilePageContent() {
     goal_ids: [] as number[],
   });
 
-  // Determine which user to display
-  const user = viewingUser || currentUser;
-  const isViewingOtherUser = viewingUser !== null;
+  // Determine which user to display. "Viewing other" = we have a userId param that's not me (even while loading).
+  const isViewingOtherUser = viewingUserId !== null && viewingUserId !== currentUser?.id;
+  const user = isViewingOtherUser ? (viewingUser ?? null) : currentUser;
 
   // Check for userId query param to view another user's profile
   useEffect(() => {
@@ -84,19 +83,26 @@ function ProfilePageContent() {
       const userId = parseInt(userIdParam);
       if (!isNaN(userId) && userId !== currentUser?.id) {
         setViewingUserId(userId);
+        setViewingUser(null);
         setViewingUserLoading(true);
         setError(null);
-        api.getUser(userId, { signal })
-          .then((userData) => {
+        setBuddyStatus('loading');
+        // Load user and buddy status in parallel (no full buddies list)
+        Promise.all([
+          api.getUser(userId, { signal }),
+          api.getBuddyStatus(userId, { signal }).catch(() => ({ status: 'none' as const })),
+        ])
+          .then(([userData, statusData]) => {
             if (signal.aborted) return;
             setViewingUser(userData);
-            checkBuddyStatus(userId);
+            setBuddyStatus(statusData.status);
           })
           .catch((err) => {
             if (err?.name === 'AbortError') return;
             console.error('Failed to load user profile:', err);
             setError('Failed to load user profile');
             setViewingUser(null);
+            setBuddyStatus('none');
           })
           .finally(() => {
             if (!signal.aborted) setViewingUserLoading(false);
@@ -122,20 +128,10 @@ function ProfilePageContent() {
       setBuddyStatus('none');
       return;
     }
-
     try {
       setBuddyStatus('loading');
-      const buddies = await api.getBuddies();
-      const buddy = buddies.find((b: Buddy) => 
-        (b.user1_id === currentUser.id && b.user2_id === otherUserId) ||
-        (b.user1_id === otherUserId && b.user2_id === currentUser.id)
-      );
-      
-      if (buddy) {
-        setBuddyStatus(buddy.status as 'pending' | 'accepted' | 'rejected');
-      } else {
-        setBuddyStatus('none');
-      }
+      const { status } = await api.getBuddyStatus(otherUserId);
+      setBuddyStatus(status);
     } catch (error) {
       console.error('Failed to check buddy status:', error);
       setBuddyStatus('none');
@@ -168,8 +164,12 @@ function ProfilePageContent() {
     }
   };
 
-  // Profile is ready when we have user to display (no blocking on posts/events)
-  const profileLoading = isViewingOtherUser ? viewingUserLoading : authLoading;
+  // Profile is ready when we have user to display (no blocking on posts/events).
+  // When viewing another user: show loading until we have viewingUser (avoid showing previous user or placeholders).
+  // When viewing own profile: show loading until auth has resolved and we have currentUser.
+  const profileLoading = isViewingOtherUser
+    ? (viewingUserLoading || !viewingUser)
+    : authLoading || !currentUser;
   const loading = profileLoading; // alias for compatibility
 
   // Sync form data when user changes (for edit tab)
@@ -637,7 +637,7 @@ function ProfilePageContent() {
               {isViewingOtherUser && currentUser && (
                 <div className="flex-shrink-0">
                   {buddyStatus === 'loading' ? (
-                    <div className="px-5 py-2 bg-gray-100 rounded-lg text-gray-600 text-sm">Loading...</div>
+                    <ButtonSkeleton />
                   ) : buddyStatus === 'none' ? (
                     <button
                       onClick={handleConnect}
@@ -1052,7 +1052,9 @@ function ProfilePageContent() {
                     ))}
                   </div>
                 ) : (
-                  <div className="p-4 text-center text-gray-500">Loading sports...</div>
+                  <div className="p-4 border border-gray-300 rounded-lg">
+                    <ChipsSkeleton count={8} />
+                  </div>
                 )}
               </div>
               <p className="mt-2 text-xs text-gray-500">
@@ -1094,7 +1096,9 @@ function ProfilePageContent() {
                   </div>
                 </div>
               ) : (
-                <div className="p-4 text-center text-gray-500">Loading goals...</div>
+                <div className="p-4 border border-gray-300 rounded-lg">
+                  <ChipsSkeleton count={8} />
+                </div>
               )}
             </div>
 

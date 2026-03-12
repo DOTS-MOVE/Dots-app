@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, useRef } from 'react';
@@ -12,6 +12,7 @@ export default function Navbar() {
   const { user, loading, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [unreadCount, setUnreadCount] = useState(0);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -104,6 +105,9 @@ export default function Navbar() {
     if (href === '/') {
       return pathname === '/';
     }
+    if (href === '/profile') {
+      return pathname === '/profile' && !searchParams?.get('userId');
+    }
     return pathname?.startsWith(href);
   };
 
@@ -144,7 +148,7 @@ export default function Navbar() {
             <Link
               href="/profile"
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${
-                pathname === '/profile'
+                pathname === '/profile' && !searchParams?.get('userId')
                   ? 'bg-[#E6F9F4] text-[#0dd9a0] font-semibold'
                   : 'text-gray-700 hover:bg-gray-100'
               }`}

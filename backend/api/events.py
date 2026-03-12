@@ -750,7 +750,7 @@ async def cancel_rsvp(
 async def get_my_events(
     current_user: dict = Depends(get_current_user)
 ):
-    """Get current user's events: owned, attending, and attended"""
+    """Get current user's events: owned, attending, and attended. Uses batched queries to avoid N+1."""
     try:
         supabase: Client = get_supabase()
     except Exception as e:
@@ -766,69 +766,117 @@ async def get_my_events(
             detail="User ID not found"
         )
     
-    def format_event(event_data):
+    # --- Fetch raw event lists (same as before) ---
+    owned_raw = []
+    try:
+        owned_result = supabase.table("events").select("*").eq("host_id", user_id).order("start_time", desc=True).execute()
+        owned_raw = owned_result.data or []
+    except Exception:
+        owned_raw = []
+    
+    attending_event_ids = []
+    attended_event_ids = []
+    try:
+        rsvps_result = supabase.table("event_rsvps").select("event_id, attended, status").eq("user_id", user_id).execute()
+        if rsvps_result.data:
+            for rsvp in rsvps_result.data:
+                if rsvp.get("attended"):
+                    attended_event_ids.append(rsvp["event_id"])
+                else:
+                    attending_event_ids.append(rsvp["event_id"])
+    except Exception:
+        pass
+    
+    attending_raw = []
+    if attending_event_ids:
+        try:
+            attending_result = supabase.table("events").select("*").in_("id", attending_event_ids).neq("host_id", user_id).order("start_time", desc=False).execute()
+            attending_raw = attending_result.data or []
+        except Exception:
+            attending_raw = []
+    
+    attended_raw = []
+    if attended_event_ids:
+        try:
+            attended_result = supabase.table("events").select("*").in_("id", attended_event_ids).order("start_time", desc=True).execute()
+            attended_raw = attended_result.data or []
+        except Exception:
+            attended_raw = []
+    
+    all_events = [e for e in owned_raw + attending_raw + attended_raw if e and e.get("id")]
+    if not all_events:
+        return {"owned": [], "attending": [], "attended": []}
+    
+    event_ids = list({e["id"] for e in all_events})
+    event_to_host = {e["id"]: e.get("host_id") for e in all_events if e.get("id")}
+    
+    # --- Batch 1: RSVPs for all events (approved + pending counts per event) ---
+    participant_count_by_event = {eid: 0 for eid in event_ids}
+    pending_count_by_event = {eid: 0 for eid in event_ids}
+    try:
+        rsvps_all = supabase.table("event_rsvps").select("event_id, status, user_id").in_("event_id", event_ids).execute()
+        if rsvps_all.data:
+            for r in rsvps_all.data:
+                eid = r.get("event_id")
+                if eid is None:
+                    continue
+                host_id_for_event = event_to_host.get(eid)
+                if r.get("status") == "approved":
+                    # Don't count host as participant
+                    if r.get("user_id") != host_id_for_event:
+                        participant_count_by_event[eid] = participant_count_by_event.get(eid, 0) + 1
+                elif r.get("status") == "pending":
+                    pending_count_by_event[eid] = pending_count_by_event.get(eid, 0) + 1
+    except Exception:
+        pass
+    
+    # --- Batch 2: Sports by id ---
+    sport_ids = list({e.get("sport_id") for e in all_events if e.get("sport_id")})
+    sports_by_id = {}
+    if sport_ids:
+        try:
+            sport_result = supabase.table("sports").select("id, name, icon").in_("id", sport_ids).execute()
+            if sport_result.data:
+                sports_by_id = {
+                    s["id"]: {
+                        "id": s.get("id"),
+                        "name": s.get("name") or "Unknown Sport",
+                        "icon": s.get("icon") or "🏃"
+                    }
+                    for s in sport_result.data
+                }
+        except Exception:
+            pass
+    
+    # --- Batch 3: Hosts (users) by id ---
+    host_ids = list({e.get("host_id") for e in all_events if e.get("host_id")})
+    hosts_by_id = {}
+    if host_ids:
+        try:
+            users_result = supabase.table("users").select("id, full_name, avatar_url").in_("id", host_ids).execute()
+            if users_result.data:
+                hosts_by_id = {
+                    u["id"]: {
+                        "id": u.get("id"),
+                        "full_name": u.get("full_name") or "Unknown",
+                        "avatar_url": u.get("avatar_url")
+                    }
+                    for u in users_result.data
+                }
+        except Exception:
+            pass
+    
+    def build_event_response(event_data):
         if not event_data or not event_data.get("id"):
             return None
-        
         event_id = event_data["id"]
-        
-        # Get participant count (approved RSVPs excluding host) - handle errors gracefully
-        participant_count = 0
         host_id = event_data.get("host_id")
-        try:
-            participant_result = supabase.table("event_rsvps").select("user_id").eq("event_id", event_id).eq("status", "approved").execute()
-            if participant_result.data:
-                # Count participants excluding the host
-                participants = [r for r in participant_result.data if r.get("user_id") != host_id]
-                participant_count = len(participants)
-        except Exception:
-            participant_count = 0
-        
-        # Get pending count - handle errors gracefully
-        pending_count = 0
-        try:
-            pending_result = supabase.table("event_rsvps").select("id", count="exact").eq("event_id", event_id).eq("status", "pending").execute()
-            pending_count = pending_result.count if pending_result.count is not None else 0
-        except Exception:
-            pending_count = 0
-        
-        # Get sport info (with error handling for missing sports)
-        sport_data = None
-        if event_data.get("sport_id"):
-            try:
-                sport_result = supabase.table("sports").select("*").eq("id", event_data["sport_id"]).single().execute()
-                if sport_result.data:
-                    sport_data = {
-                        "id": sport_result.data.get("id"),
-                        "name": sport_result.data.get("name") or "Unknown Sport",
-                        "icon": sport_result.data.get("icon") or "🏃"
-                    }
-            except Exception:
-                # Sport not found, use defaults
-                sport_data = {
-                    "id": event_data.get("sport_id"),
-                    "name": "Unknown Sport",
-                    "icon": "🏃"
-                }
-        
-        # Get host info
-        host_data = None
-        if host_id:
-            try:
-                host_result = supabase.table("users").select("id, full_name, avatar_url").eq("id", host_id).single().execute()
-                if host_result.data:
-                    host_data = {
-                        "id": host_result.data.get("id"),
-                        "full_name": host_result.data.get("full_name") or "Unknown",
-                        "avatar_url": host_result.data.get("avatar_url")
-                    }
-            except Exception:
-                host_data = {
-                    "id": host_id,
-                    "full_name": "Unknown",
-                    "avatar_url": None
-                }
-        
+        sport_data = sports_by_id.get(event_data.get("sport_id")) if event_data.get("sport_id") else None
+        if not sport_data and event_data.get("sport_id"):
+            sport_data = {"id": event_data["sport_id"], "name": "Unknown Sport", "icon": "🏃"}
+        host_data = hosts_by_id.get(host_id) if host_id else None
+        if not host_data and host_id:
+            host_data = {"id": host_id, "full_name": "Unknown", "avatar_url": None}
         return EventResponse(
             id=event_data["id"],
             title=event_data["title"],
@@ -845,55 +893,15 @@ async def get_my_events(
             cover_image_url=event_data.get("cover_image_url"),
             created_at=event_data.get("created_at"),
             updated_at=event_data.get("updated_at"),
-            participant_count=participant_count,
-            pending_requests_count=pending_count,
+            participant_count=participant_count_by_event.get(event_id, 0),
+            pending_requests_count=pending_count_by_event.get(event_id, 0),
             sport=sport_data,
             host=host_data
         )
     
-    # Get events owned by user - handle errors gracefully
-    owned_events = []
-    try:
-        owned_result = supabase.table("events").select("*").eq("host_id", user_id).order("start_time", desc=True).execute()
-        owned_events = [format_event(e) for e in (owned_result.data or []) if format_event(e) is not None]
-    except Exception:
-        owned_events = []
-    
-    # Get events user is attending (RSVP'd but not yet attended, and not owned)
-    # First get all RSVPs for this user - handle errors gracefully
-    attending_event_ids = []
-    attended_event_ids = []
-    
-    try:
-        rsvps_result = supabase.table("event_rsvps").select("event_id, attended, status").eq("user_id", user_id).execute()
-        
-        if rsvps_result.data:
-            for rsvp in rsvps_result.data:
-                if rsvp.get("attended"):
-                    attended_event_ids.append(rsvp["event_id"])
-                else:
-                    attending_event_ids.append(rsvp["event_id"])
-    except Exception:
-        # If RSVPs query fails, just use empty lists
-        pass
-    
-    # Get attending events (exclude owned) - handle errors gracefully
-    attending_events = []
-    if attending_event_ids:
-        try:
-            attending_result = supabase.table("events").select("*").in_("id", attending_event_ids).neq("host_id", user_id).order("start_time", desc=False).execute()
-            attending_events = [format_event(e) for e in (attending_result.data or []) if format_event(e) is not None]
-        except Exception:
-            attending_events = []
-    
-    # Get attended events - handle errors gracefully
-    attended_events = []
-    if attended_event_ids:
-        try:
-            attended_result = supabase.table("events").select("*").in_("id", attended_event_ids).order("start_time", desc=True).execute()
-            attended_events = [format_event(e) for e in (attended_result.data or []) if format_event(e) is not None]
-        except Exception:
-            attended_events = []
+    owned_events = [build_event_response(e) for e in owned_raw if build_event_response(e) is not None]
+    attending_events = [build_event_response(e) for e in attending_raw if build_event_response(e) is not None]
+    attended_events = [build_event_response(e) for e in attended_raw if build_event_response(e) is not None]
     
     return {
         "owned": owned_events,

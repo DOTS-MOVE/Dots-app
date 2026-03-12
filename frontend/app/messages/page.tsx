@@ -8,7 +8,8 @@ import { useAuth } from '@/lib/auth';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import BottomNav from '@/components/BottomNav';
-import { MessagesSkeleton } from '@/components/SkeletonLoader';
+import { MessagesSkeleton, MessageListSkeleton } from '@/components/SkeletonLoader';
+import { IconSettings, IconCheck, IconCheckDouble } from '@/components/Icons';
 import ProfileAvatar from '@/components/ProfileAvatar';
 import { useConversations } from '@/lib/hooks';
 import { api } from '@/lib/api';
@@ -20,7 +21,7 @@ function MessagesPageContent() {
   const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { conversations, isLoading: isConversationsLoading, mutate: mutateConversations } = useConversations();
+  const { conversations, isLoading: isConversationsLoading, isValidating: isConversationsValidating, mutate: mutateConversations } = useConversations();
   const [selectedConversation, setSelectedConversation] = useState<number | null>(null);
   const [conversationType, setConversationType] = useState<'user' | 'event' | 'group'>('user');
   const [newMessage, setNewMessage] = useState('');
@@ -56,7 +57,13 @@ function MessagesPageContent() {
   useEffect(() => {
     if (!selectedConversation || !conversationType) return;
     api.markConversationRead(selectedConversation, conversationType).catch(() => {});
-    mutateConversations().catch(() => {});
+    // Optimistic update: clear unread for this conv only. Don't refetch – avoids "no conversations" when rapidly switching.
+    mutateConversations(
+      (prev) => (prev || []).map((c) =>
+        c.id === selectedConversation && c.type === conversationType ? { ...c, unread_count: 0 } : c
+      ),
+      { revalidate: false }
+    );
   }, [selectedConversation, conversationType, mutateConversations]);
 
   useEffect(() => {
@@ -95,7 +102,7 @@ function MessagesPageContent() {
       }
 
       const messageData: any = {
-        content: newMessage.trim() || (imageUrl ? '📷' : ''),
+        content: newMessage.trim() || (imageUrl ? '[Photo]' : ''),
         image_url: imageUrl,
       };
       
@@ -240,13 +247,17 @@ function MessagesPageContent() {
 
           {/* Conversations List */}
           <div className="flex-1 overflow-y-auto">
-            {conversations.length === 0 ? (
+            {!isConversationsLoading && !isConversationsValidating && conversations.length === 0 ? (
               <div className="p-8 text-center text-gray-500">
                 <svg className="w-12 h-12 mx-auto mb-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
                 <p>No conversations yet</p>
                 <p className="text-sm mt-2">Start a new chat to get started!</p>
+              </div>
+            ) : conversations.length === 0 ? (
+              <div className="p-8 flex items-center justify-center">
+                <div className="h-8 w-8 border-2 border-[#0ef9b4] border-t-transparent rounded-full animate-spin" />
               </div>
             ) : (
               conversations.map((conv) => {
@@ -262,7 +273,12 @@ function MessagesPageContent() {
                       router.push(`/messages?id=${conv.id}&type=${conv.type}`);
                       if (conv.unread_count > 0) {
                         api.markConversationRead(conv.id, conv.type).catch(() => {});
-                        mutateConversations().catch(() => {});
+                        mutateConversations(
+                          (prev) => (prev || []).map((c) =>
+                            c.id === conv.id && c.type === conv.type ? { ...c, unread_count: 0 } : c
+                          ),
+                          { revalidate: false }
+                        );
                       }
                     }}
                     className={`w-full p-4 text-left border-b border-gray-100 hover:bg-[#E6F9F4] transition-colors cursor-pointer ${
@@ -387,16 +403,14 @@ function MessagesPageContent() {
                   className="text-gray-600 hover:text-gray-900 p-2"
                   title="Settings"
                 >
-                  ⚙️
+                  <IconSettings className="w-5 h-5" />
                 </Link>
               </div>
 
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-6 space-y-1 bg-gray-50">
                 {isMessagesLoading && messages.length === 0 ? (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="text-center text-gray-500">Loading messages...</div>
-                  </div>
+                  <MessageListSkeleton />
                 ) : messages.length === 0 ? (
                   <div className="flex items-center justify-center h-full">
                     <div className="text-center text-gray-500">
@@ -458,7 +472,7 @@ function MessagesPageContent() {
                                 <span>{formatMessageTime(message.created_at)}</span>
                                 {isMe && (
                                   <span className={message.is_read ? 'text-blue-500' : 'text-gray-400'}>
-                                    {message.is_read ? '✓✓' : '✓'}
+                                    {message.is_read ? <IconCheckDouble className="w-3.5 h-3.5 inline" /> : <IconCheck className="w-3.5 h-3.5 inline" />}
                                   </span>
                                 )}
                               </p>

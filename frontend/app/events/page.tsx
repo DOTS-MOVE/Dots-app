@@ -13,13 +13,19 @@ import { Event } from '@/types';
 import Link from 'next/link';
 
 export default function EventsPage() {
-  const { events: allEvents, isLoading: eventsLoading } = useEvents();
+  const { events: eventsData, isLoading: eventsLoading } = useEvents();
   const { sports, isLoading: sportsLoading } = useSports();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSport, setSelectedSport] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
 
   const loading = eventsLoading || sportsLoading;
+
+  const allEvents = useMemo(() => {
+    return [...eventsData].sort((a, b) =>
+      new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+    );
+  }, [eventsData]);
 
   const events = useMemo(() => {
     let filtered = [...allEvents];
@@ -41,6 +47,18 @@ export default function EventsPage() {
     }
     return filtered;
   }, [allEvents, selectedSport, searchQuery]);
+
+  const futureEvents = useMemo(() => {
+    const now = new Date();
+    return events.filter(e => new Date(e.start_time) >= now);
+  }, [events]);
+
+  const pastEvents = useMemo(() => {
+    const now = new Date();
+    return [...events]
+      .filter(e => new Date(e.start_time) < now)
+      .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime());
+  }, [events]);
 
   if (loading) {
     return (
@@ -132,7 +150,11 @@ export default function EventsPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-10 animate-in fade-in duration-500">
           <h2 className="text-3xl font-bold text-gray-900">
-            {events.length} {events.length === 1 ? 'Event' : 'Events'} Found
+            {futureEvents.length > 0
+              ? `${futureEvents.length} Upcoming ${futureEvents.length === 1 ? 'Event' : 'Events'}`
+              : pastEvents.length > 0
+                ? 'No upcoming events'
+                : `${events.length} ${events.length === 1 ? 'Event' : 'Events'} Found`}
           </h2>
           <div className="w-full md:w-auto flex flex-col sm:flex-row gap-3 md:gap-4">
             {/* View Toggle */}
@@ -201,13 +223,35 @@ export default function EventsPage() {
             <EventsCalendar events={events} />
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {events.map((event, index) => (
-              <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4" style={{ animationDelay: `${index * 50}ms` }}>
-                <EventCardLarge event={event} />
+          <>
+            {/* Upcoming Events */}
+            {futureEvents.length > 0 && (
+              <div className="animate-in fade-in duration-500">
+                <h3 className="text-2xl font-bold text-gray-900 mb-6">Upcoming Events</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {futureEvents.map((event, index) => (
+                    <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4" style={{ animationDelay: `${index * 50}ms` }}>
+                      <EventCardLarge event={event} />
+                    </div>
+                  ))}
+                </div>
               </div>
-            ))}
-          </div>
+            )}
+
+            {/* Previous Events */}
+            {pastEvents.length > 0 && (
+              <div className="mt-20 animate-in fade-in duration-500">
+                <h3 className="text-2xl font-bold text-gray-500 mb-10">Previous Events</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  {pastEvents.map((event, index) => (
+                    <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4 opacity-90" style={{ animationDelay: `${index * 50}ms` }}>
+                      <EventCardLarge event={event} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

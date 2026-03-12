@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { Event } from '@/types';
+import { IconUsers } from '@/components/Icons';
 
 interface EventCardProps {
   event: Event;
@@ -65,7 +66,10 @@ export default function EventCard({ event }: EventCardProps) {
             )}
             <div className="flex items-center space-x-3 mt-2">
               <span className="text-xs text-gray-500">
-                👥 {event.participant_count} {event.participant_count === 1 ? 'participant' : 'participants'}
+                <span className="flex items-center gap-1">
+                  <IconUsers className="w-4 h-4 flex-shrink-0" />
+                  {event.participant_count} {event.participant_count === 1 ? 'participant' : 'participants'}
+                </span>
               </span>
               {event.max_participants && (
                 <span className="text-xs text-gray-400">

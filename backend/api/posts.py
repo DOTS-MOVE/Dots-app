@@ -128,54 +128,59 @@ async def get_posts(
     if not posts_result.data:
         return []
     
-    result = []
+    posts = posts_result.data
+    post_ids = [p["id"] for p in posts]
+    author_ids = list({p["user_id"] for p in posts if p.get("user_id")})
     current_user_id = current_user.get("id") if current_user and isinstance(current_user, dict) else None
     
-    for post in posts_result.data:
-        # Get like count - handle errors gracefully
-        like_count = 0
+    # Batch 1: All likes for these posts (count per post + is_liked by current user)
+    like_count_by_post = {pid: 0 for pid in post_ids}
+    liked_post_ids = set()
+    try:
+        likes_result = supabase.table("likes").select("post_id, user_id").in_("post_id", post_ids).execute()
+        if likes_result.data:
+            for row in likes_result.data:
+                pid = row.get("post_id")
+                if pid is not None:
+                    like_count_by_post[pid] = like_count_by_post.get(pid, 0) + 1
+                    if current_user_id and row.get("user_id") == current_user_id:
+                        liked_post_ids.add(pid)
+    except Exception:
+        pass
+    
+    # Batch 2: Authors (users) by id
+    users_by_id = {}
+    if author_ids:
         try:
-            likes_result = supabase.table("likes").select("id", count="exact").eq("post_id", post["id"]).execute()
-            like_count = likes_result.count if likes_result.count is not None else 0
-        except Exception:
-            like_count = 0
-        
-        # Check if current user liked it - handle errors gracefully
-        is_liked = False
-        if current_user_id:
-            try:
-                user_like = supabase.table("likes").select("id").eq("post_id", post["id"]).eq("user_id", current_user_id).execute()
-                is_liked = len(user_like.data) > 0 if user_like.data else False
-            except Exception:
-                is_liked = False
-        
-        # Get user info (with error handling for missing users)
-        user_dict = None
-        try:
-            user_result = supabase.table("users").select("id, full_name, avatar_url").eq("id", post["user_id"]).single().execute()
-            if user_result.data:
-                user_dict = {
-                    "id": user_result.data.get("id"),
-                    "full_name": user_result.data.get("full_name") or "Unknown User",
-                    "avatar_url": user_result.data.get("avatar_url")
+            users_result = supabase.table("users").select("id, full_name, avatar_url").in_("id", author_ids).execute()
+            if users_result.data:
+                users_by_id = {
+                    u["id"]: {
+                        "id": u.get("id"),
+                        "full_name": u.get("full_name") or "Unknown User",
+                        "avatar_url": u.get("avatar_url")
+                    }
+                    for u in users_result.data
                 }
         except Exception:
-            # User not found, use defaults
-            user_dict = {
-                "id": post["user_id"],
-                "full_name": "Unknown User",
-                "avatar_url": None
-            }
-        
+            pass
+    
+    result = []
+    for post in posts:
+        pid = post["id"]
+        uid = post.get("user_id")
+        user_dict = users_by_id.get(uid)
+        if not user_dict and uid is not None:
+            user_dict = {"id": uid, "full_name": "Unknown User", "avatar_url": None}
         result.append(PostResponse(
-            id=post["id"],
+            id=pid,
             user_id=post["user_id"],
             content=post["content"],
             image_url=post.get("image_url"),
             created_at=post["created_at"],
             updated_at=post.get("updated_at"),
-            like_count=like_count,
-            is_liked=is_liked,
+            like_count=like_count_by_post.get(pid, 0),
+            is_liked=pid in liked_post_ids,
             user=user_dict
         ))
     

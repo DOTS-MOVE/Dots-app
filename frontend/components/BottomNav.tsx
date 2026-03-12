@@ -1,11 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 
 export default function BottomNav() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
 
   if (!user) return null;
@@ -61,6 +62,9 @@ export default function BottomNav() {
   const isActive = (href: string) => {
     if (href === '/') {
       return pathname === '/';
+    }
+    if (href === '/profile') {
+      return pathname === '/profile' && !searchParams?.get('userId');
     }
     return pathname?.startsWith(href);
   };

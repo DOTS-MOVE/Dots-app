@@ -3,6 +3,8 @@ from supabase import Client
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from typing import List, Optional
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from core.database import get_supabase, get_db
 from api.auth import get_current_user
 from schemas.user import UserResponse, UserUpdate, UserProfile, CompleteProfileRequest
@@ -10,6 +12,37 @@ from schemas.user_photo import UserPhotoCreate, UserPhotoResponse
 from models.user import User
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+# Shared executor for running blocking Supabase calls in parallel
+_executor = ThreadPoolExecutor(max_workers=4)
+
+
+def _fetch_user_photos(supabase: Client, uid: int) -> list:
+    try:
+        r = supabase.table("user_photos").select("*").eq("user_id", uid).order("display_order").execute()
+        return r.data or []
+    except Exception:
+        return []
+
+
+def _fetch_user_sports(supabase: Client, uid: int) -> list:
+    try:
+        r = supabase.table("user_sports").select("sport_id, sports(*)").eq("user_id", uid).execute()
+        if not r.data:
+            return []
+        return [item["sports"] for item in r.data if item.get("sports")]
+    except Exception:
+        return []
+
+
+def _fetch_user_goals(supabase: Client, uid: int) -> list:
+    try:
+        r = supabase.table("user_goals").select("goal_id, goals(*)").eq("user_id", uid).execute()
+        if not r.data:
+            return []
+        return [item["goals"] for item in r.data if item.get("goals")]
+    except Exception:
+        return []
 
 
 @router.get("/me", response_model=UserProfile)
@@ -33,35 +66,12 @@ async def get_current_user_profile(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Get photos - handle errors gracefully
-    photos = []
-    try:
-        photos_result = supabase.table("user_photos").select("*").eq("user_id", user_id).order("display_order").execute()
-        photos = photos_result.data if photos_result.data else []
-    except Exception:
-        photos = []
-    
-    # Get sports - handle errors gracefully
-    sports = []
-    try:
-        sports_result = supabase.table("user_sports").select("sport_id, sports(*)").eq("user_id", user_id).execute()
-        if sports_result.data:
-            for item in sports_result.data:
-                if item.get("sports"):
-                    sports.append(item["sports"])
-    except Exception:
-        sports = []
-    
-    # Get goals - handle errors gracefully
-    goals = []
-    try:
-        goals_result = supabase.table("user_goals").select("goal_id, goals(*)").eq("user_id", user_id).execute()
-        if goals_result.data:
-            for item in goals_result.data:
-                if item.get("goals"):
-                    goals.append(item["goals"])
-    except Exception:
-        goals = []
+    loop = asyncio.get_event_loop()
+    photos, sports, goals = await asyncio.gather(
+        loop.run_in_executor(_executor, _fetch_user_photos, supabase, user_id),
+        loop.run_in_executor(_executor, _fetch_user_sports, supabase, user_id),
+        loop.run_in_executor(_executor, _fetch_user_goals, supabase, user_id),
+    )
     
     # Build response with safe defaults
     response = {
@@ -183,27 +193,11 @@ async def get_user_profile(
             detail="User not found"
         )
     
-    # Get sports
-    sports = []
-    try:
-        sports_result = supabase.table("user_sports").select("sport_id, sports(*)").eq("user_id", user_id).execute()
-        if sports_result.data:
-            for item in sports_result.data:
-                if item.get("sports"):
-                    sports.append(item["sports"])
-    except Exception:
-        pass
-    
-    # Get goals
-    goals = []
-    try:
-        goals_result = supabase.table("user_goals").select("goal_id, goals(*)").eq("user_id", user_id).execute()
-        if goals_result.data:
-            for item in goals_result.data:
-                if item.get("goals"):
-                    goals.append(item["goals"])
-    except Exception:
-        pass
+    loop = asyncio.get_event_loop()
+    sports, goals = await asyncio.gather(
+        loop.run_in_executor(_executor, _fetch_user_sports, supabase, user_id),
+        loop.run_in_executor(_executor, _fetch_user_goals, supabase, user_id),
+    )
     
     return {
         **{k: v for k, v in user.items() if k not in ["sports", "goals"]},

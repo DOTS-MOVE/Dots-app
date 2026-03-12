@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import { supabase, mapSupabaseUser } from './supabase';
 import { User } from '@/types';
 
@@ -21,6 +21,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [userFromApi, setUserFromApi] = useState(false);
   const [loading, setLoading] = useState(true);
+  /** When rehydration fails (e.g. TOKEN_REFRESHED + API blip), keep showing last full user instead of overwriting with minimal fallback. */
+  const hasFullUserRef = useRef(false);
 
   // Helper to check if user email is confirmed
   const isEmailConfirmed = (supabaseUser: any): boolean => {
@@ -34,6 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
 
       if (!session?.user) {
+        hasFullUserRef.current = false;
         setUser(null);
         setUserFromApi(false);
         setLoading(false);
@@ -43,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!isEmailConfirmed(session.user)) {
         await supabase.auth.signOut();
         if (cancelled) return;
+        hasFullUserRef.current = false;
         setUser(null);
         setUserFromApi(false);
         setLoading(false);
@@ -53,16 +57,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { api } = await import('./api');
         const fullUser = await api.getCurrentUser(session?.access_token ?? undefined);
         if (cancelled) return;
+        hasFullUserRef.current = true;
         setUser(fullUser);
         setUserFromApi(true);
       } catch (apiError: any) {
         if (cancelled) return;
         if (apiError?.name === 'AbortError' || (apiError?.message ?? '').toLowerCase().includes('aborted')) return;
+        // Don't overwrite a previously loaded full profile with minimal fallback (e.g. on TOKEN_REFRESHED + API blip)
+        if (hasFullUserRef.current) {
+          if (!cancelled) setLoading(false);
+          return;
+        }
         const mapped = mapSupabaseUser(session.user);
         if (mapped) {
+          hasFullUserRef.current = false;
           setUser(mapped);
           setUserFromApi(false);
         } else {
+          hasFullUserRef.current = false;
           setUser(null);
           setUserFromApi(false);
         }
@@ -121,6 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (event === 'INITIAL_SESSION') return;
 
       if (event === 'SIGNED_OUT' || !session) {
+        hasFullUserRef.current = false;
         setUser(null);
         setUserFromApi(false);
         setLoading(false);
@@ -144,6 +157,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { data: { user: supabaseUser }, error } = await supabase.auth.getUser();
       if (error) {
+        hasFullUserRef.current = false;
         setUser(null);
         setUserFromApi(false);
         return;
@@ -153,21 +167,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const { api } = await import('./api');
           const fullUser = await api.getCurrentUser();
+          hasFullUserRef.current = true;
           setUser(fullUser);
           setUserFromApi(true);
         } catch (apiError: any) {
           console.warn('Failed to fetch full user profile from API:', apiError.message);
+          if (hasFullUserRef.current) return;
           const mapped = mapSupabaseUser(supabaseUser);
           setUser(mapped);
           setUserFromApi(false);
         }
       } else {
+        hasFullUserRef.current = false;
         setUser(null);
         setUserFromApi(false);
       }
     } catch (error: any) {
       if (error?.name === 'AbortError' || (error?.message ?? '').toLowerCase().includes('aborted')) return;
       console.error('Failed to fetch user:', error);
+      hasFullUserRef.current = false;
       setUser(null);
       setUserFromApi(false);
     }
@@ -193,10 +211,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const { api } = await import('./api');
         const fullUser = await api.getCurrentUser(token);
+        hasFullUserRef.current = true;
         setUser(fullUser);
         setUserFromApi(true);
       } catch (apiError) {
         const mapped = mapSupabaseUser(data.user);
+        hasFullUserRef.current = false;
         setUser(mapped);
         setUserFromApi(false);
       }
@@ -231,6 +251,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) {
       console.error('Error signing out:', error);
     }
+    hasFullUserRef.current = false;
     setUser(null);
     setUserFromApi(false);
   };

@@ -13,6 +13,7 @@ import { useEvents, useSports } from '@/lib/hooks';
 import { api } from '@/lib/api';
 import { Event, User } from '@/types';
 import Link from 'next/link';
+import { IconSparkles, IconTarget } from '@/components/Icons';
 
 export default function Home() {
   const { user, loading } = useAuth();
@@ -179,7 +180,7 @@ export default function Home() {
           {profileIncomplete && (
             <div className="bg-white/95 backdrop-blur-md border border-white/30 rounded-2xl p-5 mb-8 shadow-xl animate-in slide-in-from-top-4 duration-500">
               <div className="flex items-start space-x-4">
-                <span className="text-2xl">✨</span>
+                <span className="text-2xl"><IconSparkles className="w-8 h-8 inline text-[#0ef9b4]" /></span>
                 <div className="flex-1">
                   <h3 className="font-bold text-gray-900 text-lg mb-2">Complete your profile</h3>
                   <p className="text-sm text-gray-700 mb-4">For recommendations, messaging and more!</p>
@@ -390,7 +391,7 @@ export default function Home() {
         {/* Empty State - Only show when not searching and no upcoming events */}
         {!searchQuery.trim() && futureEvents.length === 0 && (
           <div className="text-center py-16 animate-in fade-in duration-500">
-            <div className="text-6xl mb-4">🎯</div>
+            <div className="mb-4"><IconTarget className="w-16 h-16 text-gray-400 mx-auto" /></div>
             <h3 className="text-2xl font-bold text-gray-900 mb-2">
               {selectedSport ? 'No upcoming events found' : pastEvents.length > 0 ? 'No upcoming events' : 'No events yet'}
             </h3>

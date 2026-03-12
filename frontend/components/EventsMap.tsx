@@ -5,6 +5,8 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { Event } from '@/types';
 import Link from 'next/link';
+import { MapSkeleton } from '@/components/SkeletonLoader';
+import { IconUsers } from '@/components/Icons';
 import 'leaflet/dist/leaflet.css';
 
 // Fix for default marker icons in Next.js
@@ -132,11 +134,7 @@ export default function EventsMap({ events, userLocation }: EventsMapProps) {
   const center = userLocation ? [userLocation.lat, userLocation.lng] as [number, number] : defaultCenter;
 
   if (!mounted) {
-    return (
-      <div className="w-full h-[600px] bg-gray-200 rounded-3xl flex items-center justify-center">
-        <div className="text-gray-600">Loading map...</div>
-      </div>
-    );
+    return <MapSkeleton />;
   }
 
   // Get sport emoji/icon
@@ -216,7 +214,7 @@ export default function EventsMap({ events, userLocation }: EventsMapProps) {
                 )}
                 {event.participant_count !== undefined && (
                   <p className="text-xs text-gray-500 mt-1">
-                    👥 {event.participant_count}
+                    <span className="flex items-center gap-1"><IconUsers className="w-4 h-4 flex-shrink-0" /> {event.participant_count}</span>
                     {event.max_participants && ` / ${event.max_participants}`} participants
                   </p>
                 )}

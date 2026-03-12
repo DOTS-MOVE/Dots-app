@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Event } from '@/types';
 import ProfileAvatar from './ProfileAvatar';
+import { IconUsers, IconMapPin } from '@/components/Icons';
 
 interface EventCardLargeProps {
   event: Event;
@@ -98,7 +99,7 @@ export default function EventCardLarge({ event }: EventCardLargeProps) {
 
           {/* Participants Badge */}
           <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-md rounded-full px-3 py-1.5 shadow-lg border border-white/20 flex items-center space-x-1">
-            <span className="text-xs">👥</span>
+            <IconUsers className="w-4 h-4 flex-shrink-0 text-gray-700" />
             <span className="text-xs font-semibold text-gray-700">
               {event.participant_count}
               {event.max_participants != null && '/' + event.max_participants}
@@ -120,7 +121,7 @@ export default function EventCardLarge({ event }: EventCardLargeProps) {
 
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2 text-sm text-gray-600">
-              <span className="text-base">📍</span>
+            <IconMapPin className="w-4 h-4 flex-shrink-0 text-gray-500" />
               <span className="truncate max-w-[200px]">{event.location}</span>
             </div>
 

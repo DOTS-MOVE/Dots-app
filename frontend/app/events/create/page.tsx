@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { Sport } from '@/types';
 import { uploadEventImage } from '@/lib/storage';
 import Image from 'next/image';
+import { CreateEventPageSkeleton } from '@/components/SkeletonLoader';
 
 export default function CreateEventPage() {
   const { user, loading: authLoading } = useAuth();
@@ -145,8 +146,8 @@ export default function CreateEventPage() {
     return (
       <div className="min-h-screen bg-gray-50 pb-20 md:pb-0">
         <Navbar />
-        <div className="flex items-center justify-center h-64">
-          <div className="text-gray-600">Loading...</div>
+        <div className="pt-16">
+          <CreateEventPageSkeleton />
         </div>
         <BottomNav />
       </div>

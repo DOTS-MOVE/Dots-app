@@ -163,8 +163,8 @@ def find_potential_buddies(
     except Exception:
         pass
     
-    # Get discoverable users (cap at 300 to keep response time reasonable)
-    fetch_limit = (limit + 20) if limit else 300
+    # Get discoverable users (cap at 300 for first page, otherwise only fetch what we need for this page)
+    fetch_limit = limit if limit else 300
     try:
         query = supabase.table("users").select("*").eq("is_active", True).eq("is_discoverable", True).neq("id", user_id).limit(fetch_limit)
         if existing_buddy_user_ids:

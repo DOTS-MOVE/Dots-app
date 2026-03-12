@@ -8,6 +8,7 @@ import Navbar from '@/components/Navbar';
 import BottomNav from '@/components/BottomNav';
 import ProfileAvatar from '@/components/ProfileAvatar';
 import { EventDetailSkeleton } from '@/components/SkeletonLoader';
+import { IconCalendar, IconMapPin, IconUsers, IconClock, IconCheck } from '@/components/Icons';
 import { api } from '@/lib/api';
 import { Event } from '@/types';
 
@@ -235,7 +236,7 @@ export default function EventDetailPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-gray-200">
                 <div className="flex items-start space-x-4">
                   <div className="w-12 h-12 bg-[#E6F9F4] rounded-xl flex items-center justify-center flex-shrink-0">
-                    <span className="text-2xl">📅</span>
+                    <span className="text-2xl"><IconCalendar className="w-8 h-8 inline" /></span>
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Date & Time</p>
@@ -249,7 +250,7 @@ export default function EventDetailPage() {
 
                 <div className="flex items-start space-x-4">
                   <div className="w-12 h-12 bg-[#E6F9F4] rounded-xl flex items-center justify-center flex-shrink-0">
-                    <span className="text-2xl">📍</span>
+                    <span className="text-2xl"><IconMapPin className="w-8 h-8 inline" /></span>
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Location</p>
@@ -259,7 +260,7 @@ export default function EventDetailPage() {
 
                 <div className="flex items-start space-x-4">
                   <div className="w-12 h-12 bg-[#E6F9F4] rounded-xl flex items-center justify-center flex-shrink-0">
-                    <span className="text-2xl">👥</span>
+                    <span className="text-2xl"><IconUsers className="w-8 h-8 inline" /></span>
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Participants</p>
@@ -344,7 +345,7 @@ export default function EventDetailPage() {
                   {isParticipant ? (
                     <>
                       <div className="flex items-center space-x-2 text-[#0dd9a0] mb-4">
-                        <span className="text-2xl">✓</span>
+                        <span className="text-2xl"><IconCheck className="w-8 h-8 inline" /></span>
                         <span className="font-semibold">You're going!</span>
                       </div>
                       <button
@@ -408,15 +409,15 @@ export default function EventDetailPage() {
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Event Details</p>
                   <div className="space-y-3">
                     <div className="flex items-center space-x-2 text-sm">
-                      <span>📅</span>
+                      <span><IconCalendar className="w-5 h-5 inline" /></span>
                       <span className="text-gray-700">{formatDate(event.start_time)}</span>
                     </div>
                     <div className="flex items-center space-x-2 text-sm">
-                      <span>🕐</span>
+                      <span><IconClock className="w-5 h-5 inline" /></span>
                       <span className="text-gray-700">{formatTime(event.start_time)}</span>
                     </div>
                     <div className="flex items-start space-x-2 text-sm">
-                      <span>📍</span>
+                      <span><IconMapPin className="w-5 h-5 inline" /></span>
                       <span className="text-gray-700">{event.location}</span>
                     </div>
                   </div>
