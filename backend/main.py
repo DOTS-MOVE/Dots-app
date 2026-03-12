@@ -31,7 +31,7 @@ async def startup_event():
 # CORS middleware - Allow all origins in debug mode for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.DEBUG else settings.CORS_ORIGINS,  # Allow all in debug mode
+    allow_origins=["*"] if settings.DEBUG else settings.effective_cors_origins,  # Allow all in debug mode
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

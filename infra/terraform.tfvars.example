@@ -1,0 +1,26 @@
+# Prod-only: no staging domains, so staging resources are not created.
+# CI passes image digests after building and pushing.
+
+gcp_project_id     = "dots-488014"
+region             = "us-central1"
+registry_url       = "gcr.io/dots-488014"
+frontend_image_name = "dots-frontend"
+backend_image_name  = "dots-backend"
+
+# Set after build (e.g. in CI):
+# frontend_image_sha = "sha256:..."
+# backend_image_sha  = "sha256:..."
+
+frontend_domain = "app.example.com"   # Replace with your prod frontend host
+backend_domain  = "api.example.com"   # Replace with your prod backend host
+
+# Staging: leave empty for prod-only deploy
+staging_frontend_domain = ""
+staging_backend_domain  = ""
+
+# Optional: prod backend env (DEBUG etc.)
+# prod_backend_env = { "DEBUG" = "False" }
+
+# Optional: GCP Secret Manager secrets for prod Supabase
+# prod_supabase_url_secret_id = "projects/dots-488014/secrets/SUPABASE_URL/versions/latest"
+# prod_supabase_key_secret_id = "projects/dots-488014/secrets/SUPABASE_KEY/versions/latest"
