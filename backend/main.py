@@ -1,4 +1,8 @@
-from fastapi import FastAPI
+import json
+import random
+import time
+import uuid
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from core.config import settings
 from core.database import get_supabase
@@ -16,6 +20,46 @@ from api.posts import router as posts_router
 
 app = FastAPI(title="Dots API", version="1.0.0")
 logger = logging.getLogger(__name__)
+
+
+def _trace_request(request: Request, duration_ms: float, status_code: int, sample_roll: float, request_id: str):
+    payload = {
+        "event": "http_request",
+        "method": request.method,
+        "path": request.url.path,
+        "query_param_names": list(request.query_params.keys()),
+        "status_code": status_code,
+        "duration_ms": round(duration_ms, 2),
+        "request_id": request_id,
+        "sample_roll": round(sample_roll, 4),
+        "slow": duration_ms >= settings.REQUEST_TELEMETRY_SLOW_MS,
+        "slow_ms_threshold": settings.REQUEST_TELEMETRY_SLOW_MS,
+    }
+    if settings.REQUEST_TELEMETRY_JSON_LOGS:
+        logger.info(json.dumps(payload))
+    else:
+        logger.info(
+            "HTTP %s %s status=%s duration_ms=%s",
+            request.method,
+            request.url.path,
+            status_code,
+            round(duration_ms, 2),
+        )
+
+
+def _request_id_from_header(request: Request) -> str:
+    cloud_trace = request.headers.get("x-cloud-trace-context")
+    if cloud_trace:
+        return cloud_trace.split("/")[0]
+    return request.headers.get("x-request-id") or str(uuid.uuid4())
+
+
+def _should_trace() -> bool:
+    if not settings.REQUEST_TELEMETRY_ENABLED:
+        return False
+    if settings.REQUEST_TELEMETRY_SAMPLE_RATE >= 1:
+        return True
+    return random.random() <= max(0.0, settings.REQUEST_TELEMETRY_SAMPLE_RATE)
 
 # Test Supabase connection on startup
 @app.on_event("startup")
@@ -36,6 +80,68 @@ async def startup_event():
         print("⚠️  The server will continue, but Supabase features may not work")
         print("⚠️  Please check your SUPABASE_URL and SUPABASE_KEY environment variables")
         # Don't crash the server - just warn
+
+    telemetry_status = "ENABLED" if settings.REQUEST_TELEMETRY_ENABLED else "DISABLED"
+    print(
+        "Telemetry startup status: "
+        f"enabled={telemetry_status}, "
+        f"sample_rate={settings.REQUEST_TELEMETRY_SAMPLE_RATE}, "
+        f"slow_ms={settings.REQUEST_TELEMETRY_SLOW_MS}, "
+        f"json_logs={settings.REQUEST_TELEMETRY_JSON_LOGS}"
+    )
+    logger.info(
+        "telemetry_startup status=%s sample_rate=%s slow_ms=%s json_logs=%s",
+        telemetry_status,
+        settings.REQUEST_TELEMETRY_SAMPLE_RATE,
+        settings.REQUEST_TELEMETRY_SLOW_MS,
+        settings.REQUEST_TELEMETRY_JSON_LOGS,
+    )
+    if settings.REQUEST_TELEMETRY_JSON_LOGS:
+        logger.info(
+            json.dumps({
+                "event": "telemetry_startup",
+                "enabled": settings.REQUEST_TELEMETRY_ENABLED,
+                "sample_rate": settings.REQUEST_TELEMETRY_SAMPLE_RATE,
+                "slow_ms_threshold": settings.REQUEST_TELEMETRY_SLOW_MS,
+                "json_logs": settings.REQUEST_TELEMETRY_JSON_LOGS,
+                "status": telemetry_status,
+            })
+        )
+
+
+@app.middleware("http")
+async def request_telemetry_middleware(request: Request, call_next):
+    should_trace = _should_trace()
+    request_id = _request_id_from_header(request)
+    request.state.request_id = request_id
+    start = time.perf_counter()
+    sample_roll = random.random() if should_trace else 1.0
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = (time.perf_counter() - start) * 1000
+        if should_trace:
+            payload = {
+                "event": "http_request_error",
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": 500,
+                "duration_ms": round(duration_ms, 2),
+                "request_id": request_id,
+                "sample_roll": round(sample_roll, 4),
+            }
+            if settings.REQUEST_TELEMETRY_JSON_LOGS:
+                logger.exception(json.dumps(payload))
+            else:
+                logger.exception("Unhandled exception handling %s %s", request.method, request.url.path)
+        raise
+
+    duration_ms = (time.perf_counter() - start) * 1000
+    response.headers["X-Request-ID"] = request_id
+    if should_trace:
+        _trace_request(request, duration_ms, response.status_code, sample_roll, request_id)
+    return response
 
 # CORS middleware - Allow all origins in debug mode for development
 app.add_middleware(

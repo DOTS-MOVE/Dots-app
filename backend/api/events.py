@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+import json
+from datetime import datetime
+import time
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from supabase import Client
 from typing import Optional, List
-from datetime import datetime
 import logging
 from core.database import get_supabase
 from core.config import settings
@@ -748,6 +750,7 @@ async def cancel_rsvp(
 
 @router.get("/user/me", response_model=dict)
 async def get_my_events(
+    request: Request,
     current_user: dict = Depends(get_current_user)
 ):
     """Get current user's events: owned, attending, and attended"""
@@ -765,6 +768,51 @@ async def get_my_events(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User ID not found"
         )
+
+    request_id = getattr(request.state, "request_id", None)
+    telemetry = {
+        "request_id": request_id,
+        "route": "GET /events/user/me",
+        "query_count": 0,
+        "query_error_count": 0,
+        "suppressed_error_count": 0,
+        "query_ms": [],
+    }
+    request_start = time.perf_counter()
+
+    def _empty_query_result():
+        class _EmptyResult:
+            data = []
+            count = None
+        return _EmptyResult()
+
+    def timed_execute(label, builder, *, default=None, suppress=False):
+        query_start = time.perf_counter()
+        try:
+            result = builder().execute()
+            elapsed_ms = (time.perf_counter() - query_start) * 1000
+            telemetry["query_count"] += 1
+            telemetry["query_ms"].append({
+                "label": label,
+                "duration_ms": round(elapsed_ms, 2),
+                "status": "ok",
+                "rows": len(result.data) if getattr(result, "data", None) else 0
+            })
+            return result
+        except Exception as e:
+            elapsed_ms = (time.perf_counter() - query_start) * 1000
+            telemetry["query_count"] += 1
+            telemetry["query_error_count"] += 1
+            telemetry["query_ms"].append({
+                "label": label,
+                "duration_ms": round(elapsed_ms, 2),
+                "status": "error",
+                "error": e.__class__.__name__,
+            })
+            if suppress:
+                telemetry["suppressed_error_count"] += 1
+                return default if default is not None else _empty_query_result()
+            raise
     
     def format_event(event_data):
         if not event_data or not event_data.get("id"):
@@ -776,7 +824,12 @@ async def get_my_events(
         participant_count = 0
         host_id = event_data.get("host_id")
         try:
-            participant_result = supabase.table("event_rsvps").select("user_id").eq("event_id", event_id).eq("status", "approved").execute()
+            participant_result = timed_execute(
+                "format_event_participants",
+                lambda: supabase.table("event_rsvps").select("user_id").eq("event_id", event_id).eq("status", "approved"),
+                suppress=True,
+                default=None
+            )
             if participant_result.data:
                 # Count participants excluding the host
                 participants = [r for r in participant_result.data if r.get("user_id") != host_id]
@@ -787,7 +840,12 @@ async def get_my_events(
         # Get pending count - handle errors gracefully
         pending_count = 0
         try:
-            pending_result = supabase.table("event_rsvps").select("id", count="exact").eq("event_id", event_id).eq("status", "pending").execute()
+            pending_result = timed_execute(
+                "format_event_pending_count",
+                lambda: supabase.table("event_rsvps").select("id", count="exact").eq("event_id", event_id).eq("status", "pending"),
+                suppress=True,
+                default=None
+            )
             pending_count = pending_result.count if pending_result.count is not None else 0
         except Exception:
             pending_count = 0
@@ -796,7 +854,12 @@ async def get_my_events(
         sport_data = None
         if event_data.get("sport_id"):
             try:
-                sport_result = supabase.table("sports").select("*").eq("id", event_data["sport_id"]).single().execute()
+                sport_result = timed_execute(
+                    "format_event_sport",
+                    lambda: supabase.table("sports").select("*").eq("id", event_data["sport_id"]).single(),
+                    suppress=True,
+                    default=None
+                )
                 if sport_result.data:
                     sport_data = {
                         "id": sport_result.data.get("id"),
@@ -805,17 +868,18 @@ async def get_my_events(
                     }
             except Exception:
                 # Sport not found, use defaults
-                sport_data = {
-                    "id": event_data.get("sport_id"),
-                    "name": "Unknown Sport",
-                    "icon": "🏃"
-                }
+                sport_data = {"id": event_data.get("sport_id"), "name": "Unknown Sport", "icon": "🏃"}
         
         # Get host info
         host_data = None
         if host_id:
             try:
-                host_result = supabase.table("users").select("id, full_name, avatar_url").eq("id", host_id).single().execute()
+                host_result = timed_execute(
+                    "format_event_host",
+                    lambda: supabase.table("users").select("id, full_name, avatar_url").eq("id", host_id).single(),
+                    suppress=True,
+                    default=None
+                )
                 if host_result.data:
                     host_data = {
                         "id": host_result.data.get("id"),
@@ -854,7 +918,10 @@ async def get_my_events(
     # Get events owned by user - handle errors gracefully
     owned_events = []
     try:
-        owned_result = supabase.table("events").select("*").eq("host_id", user_id).order("start_time", desc=True).execute()
+        owned_result = timed_execute(
+            "owned_events",
+            lambda: supabase.table("events").select("*").eq("host_id", user_id).order("start_time", desc=True)
+        )
         owned_events = [format_event(e) for e in (owned_result.data or []) if format_event(e) is not None]
     except Exception:
         owned_events = []
@@ -865,7 +932,12 @@ async def get_my_events(
     attended_event_ids = []
     
     try:
-        rsvps_result = supabase.table("event_rsvps").select("event_id, attended, status").eq("user_id", user_id).execute()
+        rsvps_result = timed_execute(
+            "user_rsvps",
+            lambda: supabase.table("event_rsvps").select("event_id, attended, status").eq("user_id", user_id),
+            suppress=True,
+            default=None
+        )
         
         if rsvps_result.data:
             for rsvp in rsvps_result.data:
@@ -881,7 +953,10 @@ async def get_my_events(
     attending_events = []
     if attending_event_ids:
         try:
-            attending_result = supabase.table("events").select("*").in_("id", attending_event_ids).neq("host_id", user_id).order("start_time", desc=False).execute()
+            attending_result = timed_execute(
+                "attending_events",
+                lambda: supabase.table("events").select("*").in_("id", attending_event_ids).neq("host_id", user_id).order("start_time", desc=False)
+            )
             attending_events = [format_event(e) for e in (attending_result.data or []) if format_event(e) is not None]
         except Exception:
             attending_events = []
@@ -890,11 +965,24 @@ async def get_my_events(
     attended_events = []
     if attended_event_ids:
         try:
-            attended_result = supabase.table("events").select("*").in_("id", attended_event_ids).order("start_time", desc=True).execute()
+            attended_result = timed_execute(
+                "attended_events",
+                lambda: supabase.table("events").select("*").in_("id", attended_event_ids).order("start_time", desc=True)
+            )
             attended_events = [format_event(e) for e in (attended_result.data or []) if format_event(e) is not None]
         except Exception:
             attended_events = []
-    
+
+    telemetry["owned_count"] = len(owned_events)
+    telemetry["attending_count"] = len(attending_events)
+    telemetry["attended_count"] = len(attended_events)
+    telemetry["format_event_calls"] = telemetry["owned_count"] + telemetry["attending_count"] + telemetry["attended_count"]
+    telemetry["duration_ms"] = round((time.perf_counter() - request_start) * 1000, 2)
+    telemetry["query_ms_total"] = round(sum(s["duration_ms"] for s in telemetry["query_ms"]), 2)
+
+    if settings.REQUEST_TELEMETRY_ENABLED:
+        logger.info(json.dumps({"event": "get_my_events_summary", "telemetry": telemetry}))
+
     return {
         "owned": owned_events,
         "attending": attending_events,

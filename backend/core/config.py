@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     # App
     DEBUG: bool = True
     AUTO_APPROVE_RSVPS: bool = False
+
+    # Telemetry
+    REQUEST_TELEMETRY_ENABLED: bool = True
+    REQUEST_TELEMETRY_SAMPLE_RATE: float = 1.0
+    REQUEST_TELEMETRY_SLOW_MS: int = 500
+    REQUEST_TELEMETRY_JSON_LOGS: bool = True
     
     class Config:
         env_file = [".env.local", ".env"]
