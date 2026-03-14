@@ -2,7 +2,7 @@
 set -e
 
 # Set Python version for gcloud (fixes Python 3.12 compatibility issue)
-export CLOUDSDK_PYTHON=/opt/homebrew/bin/python3.11
+#export CLOUDSDK_PYTHON=/opt/homebrew/bin/python3.11
 
 # Default project; override for another GCP account:
 #   GCP_PROJECT_ID=other-project-id ./deploy.sh

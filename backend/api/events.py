@@ -776,7 +776,12 @@ async def get_my_events(
         "query_count": 0,
         "query_error_count": 0,
         "suppressed_error_count": 0,
+        "query_retry_count": 0,
+        "slow_query_threshold_ms": 500,
+        "slow_query_count": 0,
+        "slow_queries": [],
         "query_ms": [],
+        "suppressed_query_errors": [],
     }
     request_start = time.perf_counter()
 
@@ -786,33 +791,71 @@ async def get_my_events(
             count = None
         return _EmptyResult()
 
-    def timed_execute(label, builder, *, default=None, suppress=False):
-        query_start = time.perf_counter()
-        try:
-            result = builder().execute()
-            elapsed_ms = (time.perf_counter() - query_start) * 1000
-            telemetry["query_count"] += 1
-            telemetry["query_ms"].append({
-                "label": label,
-                "duration_ms": round(elapsed_ms, 2),
-                "status": "ok",
-                "rows": len(result.data) if getattr(result, "data", None) else 0
-            })
-            return result
-        except Exception as e:
-            elapsed_ms = (time.perf_counter() - query_start) * 1000
-            telemetry["query_count"] += 1
-            telemetry["query_error_count"] += 1
-            telemetry["query_ms"].append({
-                "label": label,
-                "duration_ms": round(elapsed_ms, 2),
-                "status": "error",
-                "error": e.__class__.__name__,
-            })
-            if suppress:
-                telemetry["suppressed_error_count"] += 1
-                return default if default is not None else _empty_query_result()
-            raise
+    def _safe_error_text(exc: Exception) -> str:
+        msg = str(exc).replace("\n", " ").strip()
+        if not msg:
+            return "<empty>"
+        return msg[:240]
+
+    def timed_execute(label, builder, *, default=None, suppress=False, query_shape=None, max_retries=0):
+        attempts = 0
+        for _ in range(max_retries + 1):
+            attempts += 1
+            query_start = time.perf_counter()
+            try:
+                result = builder().execute()
+                elapsed_ms = (time.perf_counter() - query_start) * 1000
+                telemetry["query_count"] += 1
+                telemetry["query_ms"].append({
+                    "label": label,
+                    "duration_ms": round(elapsed_ms, 2),
+                    "status": "ok",
+                    "rows": len(result.data) if getattr(result, "data", None) else 0,
+                    "attempts": attempts,
+                    "query_shape": query_shape,
+                })
+                if elapsed_ms > telemetry["slow_query_threshold_ms"]:
+                    telemetry["slow_query_count"] += 1
+                    telemetry["slow_queries"].append({
+                        "label": label,
+                        "duration_ms": round(elapsed_ms, 2),
+                        "query_shape": query_shape,
+                        "attempts": attempts,
+                    })
+                return result
+            except Exception as e:
+                if attempts <= max_retries:
+                    telemetry["query_retry_count"] += 1
+                    continue
+
+                elapsed_ms = (time.perf_counter() - query_start) * 1000
+                telemetry["query_count"] += 1
+                telemetry["query_error_count"] += 1
+                query_error = {
+                    "label": label,
+                    "duration_ms": round(elapsed_ms, 2),
+                    "status": "error",
+                    "error": e.__class__.__name__,
+                    "error_message": _safe_error_text(e),
+                    "attempts": attempts,
+                    "query_shape": query_shape,
+                }
+                telemetry["query_ms"].append(query_error)
+                if elapsed_ms > telemetry["slow_query_threshold_ms"]:
+                    telemetry["slow_query_count"] += 1
+                    telemetry["slow_queries"].append({
+                        "label": label,
+                        "duration_ms": round(elapsed_ms, 2),
+                        "query_shape": query_shape,
+                        "attempts": attempts,
+                        "status": "error",
+                        "error": e.__class__.__name__,
+                    })
+                if suppress:
+                    telemetry["suppressed_error_count"] += 1
+                    telemetry["suppressed_query_errors"].append(query_error)
+                    return default if default is not None else _empty_query_result()
+                raise
     
     def format_event(event_data):
         if not event_data or not event_data.get("id"):
@@ -828,6 +871,8 @@ async def get_my_events(
                 "format_event_participants",
                 lambda: supabase.table("event_rsvps").select("user_id").eq("event_id", event_id).eq("status", "approved"),
                 suppress=True,
+                query_shape="SELECT user_id FROM event_rsvps WHERE event_id = :event_id AND status = :status",
+                max_retries=1,
                 default=None
             )
             if participant_result.data:
@@ -844,6 +889,8 @@ async def get_my_events(
                 "format_event_pending_count",
                 lambda: supabase.table("event_rsvps").select("id", count="exact").eq("event_id", event_id).eq("status", "pending"),
                 suppress=True,
+                query_shape="SELECT COUNT(id) FROM event_rsvps WHERE event_id = :event_id AND status = :status",
+                max_retries=1,
                 default=None
             )
             pending_count = pending_result.count if pending_result.count is not None else 0
@@ -936,6 +983,8 @@ async def get_my_events(
             "user_rsvps",
             lambda: supabase.table("event_rsvps").select("event_id, attended, status").eq("user_id", user_id),
             suppress=True,
+            query_shape="SELECT event_id, attended, status FROM event_rsvps WHERE user_id = :user_id",
+            max_retries=1,
             default=None
         )
         
