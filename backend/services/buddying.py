@@ -114,9 +114,9 @@ def calculate_buddy_score(user1: dict, user2: dict, supabase: Client = None, eve
             score += 0.05
     elif supabase:
         try:
-            user1_events_result = supabase.table("event_rsvps").select("id", count="exact").eq("user_id", user1.get("id")).eq("status", "approved").execute()
+            user1_events_result = supabase.table("event_rsvps").select("event_id", count="exact").eq("user_id", user1.get("id")).eq("status", "approved").execute()
             user1_events = user1_events_result.count if user1_events_result.count is not None else 0
-            user2_events_result = supabase.table("event_rsvps").select("id", count="exact").eq("user_id", user2.get("id")).eq("status", "approved").execute()
+            user2_events_result = supabase.table("event_rsvps").select("event_id", count="exact").eq("user_id", user2.get("id")).eq("status", "approved").execute()
             user2_events = user2_events_result.count if user2_events_result.count is not None else 0
             if user1_events >= 5 and user2_events >= 5:
                 score += 0.10
@@ -247,17 +247,25 @@ def create_buddy_request(
     """
     # Check if buddy already exists
     try:
-        # Check both directions
-        existing1 = supabase.table("buddies").select("*").eq("user1_id", user1_id).eq("user2_id", user2_id).execute()
-        existing2 = supabase.table("buddies").select("*").eq("user1_id", user2_id).eq("user2_id", user1_id).execute()
-        
-        if (existing1.data and len(existing1.data) > 0) or (existing2.data and len(existing2.data) > 0):
-            raise ValueError("Buddy already exists")
+        # One query for both directions, then validate exact match in Python.
+        existing_result = (
+            supabase.table("buddies")
+            .select("user1_id, user2_id")
+            .in_("user1_id", [user1_id, user2_id])
+            .in_("user2_id", [user1_id, user2_id])
+            .execute()
+        )
+        if existing_result.data:
+            for edge in existing_result.data:
+                if (edge.get("user1_id") == user1_id and edge.get("user2_id") == user2_id) or (
+                    edge.get("user1_id") == user2_id and edge.get("user2_id") == user1_id
+                ):
+                    raise ValueError("Buddy already exists")
     except ValueError:
         raise
     except Exception:
         pass  # If query fails, continue (might be a connection issue)
-    
+
     # Get user data for score calculation
     try:
         user1_result = supabase.table("users").select("*").eq("id", user1_id).single().execute()

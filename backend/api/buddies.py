@@ -206,15 +206,24 @@ async def create_buddy(
     
     # Check if buddy already exists
     try:
-        # Check both directions: user1->user2 and user2->user1
-        existing1 = supabase.table("buddies").select("*").eq("user1_id", user_id).eq("user2_id", buddy_request.user2_id).execute()
-        existing2 = supabase.table("buddies").select("*").eq("user1_id", buddy_request.user2_id).eq("user2_id", user_id).execute()
-        
-        if (existing1.data and len(existing1.data) > 0) or (existing2.data and len(existing2.data) > 0):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Buddy already exists"
-            )
+        # Check both directions in one query.
+        # Filter candidate edge set then validate exact unordered pair in code.
+        existing_result = (
+            supabase.table("buddies")
+            .select("user1_id, user2_id")
+            .in_("user1_id", [user_id, buddy_request.user2_id])
+            .in_("user2_id", [user_id, buddy_request.user2_id])
+            .execute()
+        )
+        if existing_result.data:
+            for edge in existing_result.data:
+                if (edge.get("user1_id") == user_id and edge.get("user2_id") == buddy_request.user2_id) or (
+                    edge.get("user1_id") == buddy_request.user2_id and edge.get("user2_id") == user_id
+                ):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Buddy already exists"
+                    )
     except Exception as e:
         if isinstance(e, HTTPException):
             raise

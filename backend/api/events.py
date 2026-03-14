@@ -106,7 +106,7 @@ async def create_event(
     participant_count = 0
     host_id = new_event.get("host_id")
     try:
-        participant_result = supabase.table("event_rsvps").select("id").eq("event_id", new_event["id"]).eq("status", "approved").execute()
+        participant_result = supabase.table("event_rsvps").select("user_id").eq("event_id", new_event["id"]).eq("status", "approved").execute()
         if participant_result.data:
             # Count participants excluding the host
             participants = [r for r in participant_result.data if r.get("user_id") != host_id]
@@ -499,7 +499,7 @@ async def update_event(
         participant_count = 0
     
     try:
-        pending_result = supabase.table("event_rsvps").select("id", count="exact").eq("event_id", event_id).eq("status", "pending").execute()
+        pending_result = supabase.table("event_rsvps").select("event_id", count="exact").eq("event_id", event_id).eq("status", "pending").execute()
         pending_count = pending_result.count if pending_result.count is not None else 0
     except Exception:
         pending_count = 0
@@ -776,7 +776,12 @@ async def get_my_events(
         "query_count": 0,
         "query_error_count": 0,
         "suppressed_error_count": 0,
+        "query_retry_count": 0,
+        "slow_query_threshold_ms": 500,
+        "slow_query_count": 0,
+        "slow_queries": [],
         "query_ms": [],
+        "suppressed_query_errors": [],
     }
     request_start = time.perf_counter()
 
@@ -786,112 +791,101 @@ async def get_my_events(
             count = None
         return _EmptyResult()
 
-    def timed_execute(label, builder, *, default=None, suppress=False):
-        query_start = time.perf_counter()
-        try:
-            result = builder().execute()
-            elapsed_ms = (time.perf_counter() - query_start) * 1000
-            telemetry["query_count"] += 1
-            telemetry["query_ms"].append({
-                "label": label,
-                "duration_ms": round(elapsed_ms, 2),
-                "status": "ok",
-                "rows": len(result.data) if getattr(result, "data", None) else 0
-            })
-            return result
-        except Exception as e:
-            elapsed_ms = (time.perf_counter() - query_start) * 1000
-            telemetry["query_count"] += 1
-            telemetry["query_error_count"] += 1
-            telemetry["query_ms"].append({
-                "label": label,
-                "duration_ms": round(elapsed_ms, 2),
-                "status": "error",
-                "error": e.__class__.__name__,
-            })
-            if suppress:
-                telemetry["suppressed_error_count"] += 1
-                return default if default is not None else _empty_query_result()
-            raise
+    def _safe_error_text(exc: Exception) -> str:
+        msg = str(exc).replace("\n", " ").strip()
+        if not msg:
+            return "<empty>"
+        return msg[:240]
+
+    def timed_execute(label, builder, *, default=None, suppress=False, query_shape=None, max_retries=0):
+        attempts = 0
+        for _ in range(max_retries + 1):
+            attempts += 1
+            query_start = time.perf_counter()
+            try:
+                result = builder().execute()
+                elapsed_ms = (time.perf_counter() - query_start) * 1000
+                telemetry["query_count"] += 1
+                telemetry["query_ms"].append({
+                    "label": label,
+                    "duration_ms": round(elapsed_ms, 2),
+                    "status": "ok",
+                    "rows": len(result.data) if getattr(result, "data", None) else 0,
+                    "attempts": attempts,
+                    "query_shape": query_shape,
+                })
+                if elapsed_ms > telemetry["slow_query_threshold_ms"]:
+                    telemetry["slow_query_count"] += 1
+                    telemetry["slow_queries"].append({
+                        "label": label,
+                        "duration_ms": round(elapsed_ms, 2),
+                        "query_shape": query_shape,
+                        "attempts": attempts,
+                    })
+                return result
+            except Exception as e:
+                if attempts <= max_retries:
+                    telemetry["query_retry_count"] += 1
+                    continue
+
+                elapsed_ms = (time.perf_counter() - query_start) * 1000
+                telemetry["query_count"] += 1
+                telemetry["query_error_count"] += 1
+                query_error = {
+                    "label": label,
+                    "duration_ms": round(elapsed_ms, 2),
+                    "status": "error",
+                    "error": e.__class__.__name__,
+                    "error_message": _safe_error_text(e),
+                    "attempts": attempts,
+                    "query_shape": query_shape,
+                }
+                telemetry["query_ms"].append(query_error)
+                if elapsed_ms > telemetry["slow_query_threshold_ms"]:
+                    telemetry["slow_query_count"] += 1
+                    telemetry["slow_queries"].append({
+                        "label": label,
+                        "duration_ms": round(elapsed_ms, 2),
+                        "query_shape": query_shape,
+                        "attempts": attempts,
+                        "status": "error",
+                        "error": e.__class__.__name__,
+                    })
+                if suppress:
+                    telemetry["suppressed_error_count"] += 1
+                    telemetry["suppressed_query_errors"].append(query_error)
+                    return default if default is not None else _empty_query_result()
+                raise
     
-    def format_event(event_data):
+    def format_event(event_data, participant_counts, pending_counts, sports_by_id, hosts_by_id):
         if not event_data or not event_data.get("id"):
             return None
-        
+
         event_id = event_data["id"]
-        
-        # Get participant count (approved RSVPs excluding host) - handle errors gracefully
-        participant_count = 0
         host_id = event_data.get("host_id")
-        try:
-            participant_result = timed_execute(
-                "format_event_participants",
-                lambda: supabase.table("event_rsvps").select("user_id").eq("event_id", event_id).eq("status", "approved"),
-                suppress=True,
-                default=None
-            )
-            if participant_result.data:
-                # Count participants excluding the host
-                participants = [r for r in participant_result.data if r.get("user_id") != host_id]
-                participant_count = len(participants)
-        except Exception:
-            participant_count = 0
-        
-        # Get pending count - handle errors gracefully
-        pending_count = 0
-        try:
-            pending_result = timed_execute(
-                "format_event_pending_count",
-                lambda: supabase.table("event_rsvps").select("id", count="exact").eq("event_id", event_id).eq("status", "pending"),
-                suppress=True,
-                default=None
-            )
-            pending_count = pending_result.count if pending_result.count is not None else 0
-        except Exception:
-            pending_count = 0
-        
-        # Get sport info (with error handling for missing sports)
+        participant_count = participant_counts.get(event_id, 0)
+        pending_count = pending_counts.get(event_id, 0)
+
         sport_data = None
-        if event_data.get("sport_id"):
-            try:
-                sport_result = timed_execute(
-                    "format_event_sport",
-                    lambda: supabase.table("sports").select("*").eq("id", event_data["sport_id"]).single(),
-                    suppress=True,
-                    default=None
-                )
-                if sport_result.data:
-                    sport_data = {
-                        "id": sport_result.data.get("id"),
-                        "name": sport_result.data.get("name") or "Unknown Sport",
-                        "icon": sport_result.data.get("icon") or "🏃"
-                    }
-            except Exception:
-                # Sport not found, use defaults
-                sport_data = {"id": event_data.get("sport_id"), "name": "Unknown Sport", "icon": "🏃"}
-        
-        # Get host info
+        sport_id = event_data.get("sport_id")
+        if sport_id is not None:
+            mapped = sports_by_id.get(sport_id)
+            if mapped is None:
+                sport_data = {"id": sport_id, "name": "Unknown Sport", "icon": "🏃"}
+            else:
+                sport_data = mapped
+
         host_data = None
-        if host_id:
-            try:
-                host_result = timed_execute(
-                    "format_event_host",
-                    lambda: supabase.table("users").select("id, full_name, avatar_url").eq("id", host_id).single(),
-                    suppress=True,
-                    default=None
-                )
-                if host_result.data:
-                    host_data = {
-                        "id": host_result.data.get("id"),
-                        "full_name": host_result.data.get("full_name") or "Unknown",
-                        "avatar_url": host_result.data.get("avatar_url")
-                    }
-            except Exception:
+        if host_id is not None:
+            mapped = hosts_by_id.get(host_id)
+            if mapped is None:
                 host_data = {
                     "id": host_id,
                     "full_name": "Unknown",
                     "avatar_url": None
                 }
+            else:
+                host_data = mapped
         
         return EventResponse(
             id=event_data["id"],
@@ -914,17 +908,21 @@ async def get_my_events(
             sport=sport_data,
             host=host_data
         )
+
+    def chunked(values, chunk_size=200):
+        for i in range(0, len(values), chunk_size):
+            yield values[i:i + chunk_size]
     
     # Get events owned by user - handle errors gracefully
-    owned_events = []
+    owned_events_raw = []
     try:
         owned_result = timed_execute(
             "owned_events",
             lambda: supabase.table("events").select("*").eq("host_id", user_id).order("start_time", desc=True)
         )
-        owned_events = [format_event(e) for e in (owned_result.data or []) if format_event(e) is not None]
+        owned_events_raw = [e for e in (owned_result.data or []) if e and e.get("id")]
     except Exception:
-        owned_events = []
+        owned_events_raw = []
     
     # Get events user is attending (RSVP'd but not yet attended, and not owned)
     # First get all RSVPs for this user - handle errors gracefully
@@ -936,6 +934,8 @@ async def get_my_events(
             "user_rsvps",
             lambda: supabase.table("event_rsvps").select("event_id, attended, status").eq("user_id", user_id),
             suppress=True,
+            query_shape="SELECT event_id, attended, status FROM event_rsvps WHERE user_id = :user_id",
+            max_retries=1,
             default=None
         )
         
@@ -950,28 +950,132 @@ async def get_my_events(
         pass
     
     # Get attending events (exclude owned) - handle errors gracefully
-    attending_events = []
+    attending_events_raw = []
     if attending_event_ids:
         try:
             attending_result = timed_execute(
                 "attending_events",
                 lambda: supabase.table("events").select("*").in_("id", attending_event_ids).neq("host_id", user_id).order("start_time", desc=False)
             )
-            attending_events = [format_event(e) for e in (attending_result.data or []) if format_event(e) is not None]
+            attending_events_raw = [e for e in (attending_result.data or []) if e and e.get("id")]
         except Exception:
-            attending_events = []
+            attending_events_raw = []
     
     # Get attended events - handle errors gracefully
-    attended_events = []
+    attended_events_raw = []
     if attended_event_ids:
         try:
             attended_result = timed_execute(
                 "attended_events",
                 lambda: supabase.table("events").select("*").in_("id", attended_event_ids).order("start_time", desc=True)
             )
-            attended_events = [format_event(e) for e in (attended_result.data or []) if format_event(e) is not None]
+            attended_events_raw = [e for e in (attended_result.data or []) if e and e.get("id")]
         except Exception:
-            attended_events = []
+            attended_events_raw = []
+
+    all_events = owned_events_raw + attending_events_raw + attended_events_raw
+    event_ids = list(dict.fromkeys([e.get("id") for e in all_events if e.get("id") is not None]))
+    sport_ids = list(dict.fromkeys([e.get("sport_id") for e in all_events if e.get("sport_id") is not None]))
+    host_ids = list(dict.fromkeys([e.get("host_id") for e in all_events if e.get("host_id") is not None]))
+    event_host_by_id = {e["id"]: e.get("host_id") for e in all_events if e.get("id") is not None}
+
+    participant_counts = {}
+    pending_counts = {}
+
+    if event_ids:
+        all_rsvp_rows = []
+        for chunk in chunked(event_ids):
+            rsvp_result = timed_execute(
+                "batch_event_rsvps",
+                lambda chunk_ids=chunk: supabase.table("event_rsvps").select("event_id, user_id, status").in_("event_id", chunk_ids),
+                suppress=True,
+                query_shape="SELECT event_id, user_id, status FROM event_rsvps WHERE event_id = :event_id",
+                default=None
+            )
+            if rsvp_result.data:
+                all_rsvp_rows.extend(rsvp_result.data)
+
+        for row in all_rsvp_rows:
+            eid = row.get("event_id")
+            if eid is None:
+                continue
+            status_value = row.get("status")
+            if status_value == "approved":
+                host_uid = event_host_by_id.get(eid)
+                if row.get("user_id") != host_uid:
+                    participant_counts[eid] = participant_counts.get(eid, 0) + 1
+            elif status_value == "pending":
+                pending_counts[eid] = pending_counts.get(eid, 0) + 1
+
+    sports_by_id = {}
+    if sport_ids:
+        for chunk in chunked(sport_ids):
+            sports_result = timed_execute(
+                "batch_sports",
+                lambda chunk_ids=chunk: supabase.table("sports").select("id, name, icon").in_("id", chunk_ids),
+                suppress=True,
+                default=None
+            )
+            for row in (sports_result.data or []):
+                if row is not None and row.get("id") is not None:
+                    sports_by_id[row["id"]] = {
+                        "id": row.get("id"),
+                        "name": row.get("name") or "Unknown Sport",
+                        "icon": row.get("icon") or "🏃"
+                    }
+
+    hosts_by_id = {}
+    if host_ids:
+        for chunk in chunked(host_ids):
+            hosts_result = timed_execute(
+                "batch_hosts",
+                lambda chunk_ids=chunk: supabase.table("users").select("id, full_name, avatar_url").in_("id", chunk_ids),
+                suppress=True,
+                default=None
+            )
+            for row in (hosts_result.data or []):
+                if row is not None and row.get("id") is not None:
+                    hosts_by_id[row["id"]] = {
+                        "id": row.get("id"),
+                        "full_name": row.get("full_name") or "Unknown",
+                        "avatar_url": row.get("avatar_url")
+                    }
+
+    owned_events = []
+    for event in owned_events_raw:
+        formatted = format_event(
+            event,
+            participant_counts=participant_counts,
+            pending_counts=pending_counts,
+            sports_by_id=sports_by_id,
+            hosts_by_id=hosts_by_id
+        )
+        if formatted is not None:
+            owned_events.append(formatted)
+
+    attending_events = []
+    for event in attending_events_raw:
+        formatted = format_event(
+            event,
+            participant_counts=participant_counts,
+            pending_counts=pending_counts,
+            sports_by_id=sports_by_id,
+            hosts_by_id=hosts_by_id
+        )
+        if formatted is not None:
+            attending_events.append(formatted)
+
+    attended_events = []
+    for event in attended_events_raw:
+        formatted = format_event(
+            event,
+            participant_counts=participant_counts,
+            pending_counts=pending_counts,
+            sports_by_id=sports_by_id,
+            hosts_by_id=hosts_by_id
+        )
+        if formatted is not None:
+            attended_events.append(formatted)
 
     telemetry["owned_count"] = len(owned_events)
     telemetry["attending_count"] = len(attending_events)
