@@ -18,6 +18,25 @@ from api.goals import router as goals_router
 from api.waitlist import router as waitlist_router
 from api.posts import router as posts_router
 
+
+def _configure_logging() -> None:
+    """Ensure INFO logs from this app are emitted in Cloud Run container logs."""
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    if not root_logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.INFO)
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+        root_logger.addHandler(handler)
+    else:
+        for handler in root_logger.handlers:
+            handler.setLevel(logging.INFO)
+
+    for logger_name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
+        logging.getLogger(logger_name).setLevel(logging.INFO)
+
+
+_configure_logging()
 app = FastAPI(title="Dots API", version="1.0.0")
 logger = logging.getLogger(__name__)
 

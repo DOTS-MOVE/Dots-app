@@ -405,19 +405,39 @@ async def list_conversations(
     try:
         event_result = supabase.table("messages").select("event_id").eq("sender_id", user_id).not_.is_("event_id", "null").execute()
         event_ids = list(set([m.get("event_id") for m in (event_result.data or []) if m.get("event_id")]))
-        
-        for event_id in event_ids:
+        if event_ids:
+            events_by_id = {}
             try:
-                # Get event info
-                event_data_result = supabase.table("events").select("id, title, image_url").eq("id", event_id).single().execute()
-                if not event_data_result.data:
+                event_rows_result = supabase.table("events").select("id, title, image_url").in_("id", event_ids).execute()
+                if event_rows_result.data:
+                    events_by_id = {e["id"]: e for e in event_rows_result.data}
+            except Exception:
+                pass
+
+            last_msg_by_event = {}
+            try:
+                last_events_result = (
+                    supabase.table("messages")
+                    .select("event_id, content, created_at")
+                    .in_("event_id", event_ids)
+                    .order("created_at", desc=True)
+                    .execute()
+                )
+                for row in (last_events_result.data or []):
+                    eid = row.get("event_id")
+                    if eid is not None and eid not in last_msg_by_event:
+                        last_msg_by_event[eid] = {
+                            "content": row.get("content"),
+                            "created_at": row.get("created_at")
+                        }
+            except Exception:
+                pass
+
+            for event_id in event_ids:
+                event_data = events_by_id.get(event_id)
+                if not event_data:
                     continue
-                event_data = event_data_result.data
-                
-                # Get last message
-                last_msg_result = supabase.table("messages").select("*").eq("event_id", event_id).order("created_at", desc=True).limit(1).execute()
-                last_message = last_msg_result.data[0] if last_msg_result.data and len(last_msg_result.data) > 0 else None
-                
+                last_message = last_msg_by_event.get(event_id)
                 conversations.append({
                     "type": "event",
                     "id": event_id,
@@ -429,8 +449,6 @@ async def list_conversations(
                     },
                     "unread_count": 0
                 })
-            except Exception:
-                continue
     except Exception:
         pass
     
@@ -439,37 +457,61 @@ async def list_conversations(
         # Get groups user is a member of
         group_members_result = supabase.table("group_members").select("group_id").eq("user_id", user_id).execute()
         group_ids = list(set([g.get("group_id") for g in (group_members_result.data or []) if g.get("group_id")]))
-        
-        for group_id in group_ids:
+        if group_ids:
+            groups_by_id = {}
             try:
-                # Get group info
-                group_result = supabase.table("group_chats").select("id, name, avatar_url").eq("id", group_id).single().execute()
-                if not group_result.data:
+                group_rows_result = supabase.table("group_chats").select("id, name, avatar_url").in_("id", group_ids).execute()
+                if group_rows_result.data:
+                    groups_by_id = {g["id"]: g for g in group_rows_result.data}
+            except Exception:
+                pass
+
+            last_msg_by_group = {}
+            try:
+                last_groups_result = (
+                    supabase.table("messages")
+                    .select("group_id, content, created_at")
+                    .in_("group_id", group_ids)
+                    .order("created_at", desc=True)
+                    .execute()
+                )
+                for row in (last_groups_result.data or []):
+                    gid = row.get("group_id")
+                    if gid is not None and gid not in last_msg_by_group:
+                        last_msg_by_group[gid] = {
+                            "content": row.get("content"),
+                            "created_at": row.get("created_at")
+                        }
+            except Exception:
+                pass
+
+            member_count_by_group = {}
+            try:
+                group_member_rows = supabase.table("group_members").select("group_id").in_("group_id", group_ids).execute()
+                for row in (group_member_rows.data or []):
+                    gid = row.get("group_id")
+                    if gid is not None:
+                        member_count_by_group[gid] = member_count_by_group.get(gid, 0) + 1
+            except Exception:
+                pass
+
+            for group_id in group_ids:
+                group_data = groups_by_id.get(group_id)
+                if not group_data:
                     continue
-                group_data = group_result.data
-                
-                # Get last message
-                last_msg_result = supabase.table("messages").select("*").eq("group_id", group_id).order("created_at", desc=True).limit(1).execute()
-                last_message = last_msg_result.data[0] if last_msg_result.data and len(last_msg_result.data) > 0 else None
-                
-                # Get member count
-                member_count_result = supabase.table("group_members").select("id", count="exact").eq("group_id", group_id).execute()
-                member_count = member_count_result.count if member_count_result.count is not None else 0
-                
+                last_message = last_msg_by_group.get(group_id)
                 conversations.append({
                     "type": "group",
                     "id": group_id,
                     "name": group_data.get("name") or "Unknown Group",
                     "avatar_url": group_data.get("avatar_url"),
-                    "member_count": member_count,
+                    "member_count": member_count_by_group.get(group_id, 0),
                     "last_message": {
                         "content": last_message.get("content") if last_message else None,
                         "created_at": last_message.get("created_at") if last_message else None
                     },
                     "unread_count": 0
                 })
-            except Exception:
-                continue
     except Exception:
         pass
     
@@ -586,48 +628,67 @@ async def get_conversation(
     
     # Sort messages by created_at
     messages_data.sort(key=lambda x: x.get("created_at", ""))
+
+    sender_ids = {msg.get("sender_id") for msg in messages_data if msg.get("sender_id") is not None}
+    receiver_ids = {msg.get("receiver_id") for msg in messages_data if msg.get("receiver_id") is not None}
+    message_event_ids = {msg.get("event_id") for msg in messages_data if msg.get("event_id") is not None}
+
+    users_by_id = {}
+    if sender_ids or receiver_ids:
+        try:
+            user_ids = list(sender_ids.union(receiver_ids))
+            users_result = supabase.table("users").select("id, full_name, avatar_url").in_("id", user_ids).execute()
+            if users_result.data:
+                users_by_id = {u["id"]: u for u in users_result.data}
+        except Exception:
+            users_by_id = {}
+
+    events_by_id = {}
+    if message_event_ids:
+        try:
+            events_result = supabase.table("events").select("id, title").in_("id", list(message_event_ids)).execute()
+            if events_result.data:
+                events_by_id = {e["id"]: e for e in events_result.data}
+        except Exception:
+            events_by_id = {}
     
     # Build result with user/event details
     result = []
     for msg in messages_data:
         # Get sender info
-        sender_data = {}
-        try:
-            sender_result = supabase.table("users").select("id, full_name, avatar_url").eq("id", msg.get("sender_id")).single().execute()
-            if sender_result.data:
-                sender_data = {
-                    "id": sender_result.data.get("id"),
-                    "full_name": sender_result.data.get("full_name") or "Unknown",
-                    "avatar_url": sender_result.data.get("avatar_url")
-                }
-        except Exception:
+        sender_info = users_by_id.get(msg.get("sender_id")) if msg.get("sender_id") is not None else None
+        if sender_info:
+            sender_data = {
+                "id": sender_info.get("id"),
+                "full_name": sender_info.get("full_name") or "Unknown",
+                "avatar_url": sender_info.get("avatar_url")
+            }
+        else:
             sender_data = {"id": msg.get("sender_id"), "full_name": "Unknown", "avatar_url": None}
         
         # Get receiver info (if exists)
         receiver_data = None
         if msg.get("receiver_id"):
-            try:
-                receiver_result = supabase.table("users").select("id, full_name, avatar_url").eq("id", msg.get("receiver_id")).single().execute()
-                if receiver_result.data:
-                    receiver_data = {
-                        "id": receiver_result.data.get("id"),
-                        "full_name": receiver_result.data.get("full_name") or "Unknown",
-                        "avatar_url": receiver_result.data.get("avatar_url")
-                    }
-            except Exception:
+            receiver_info = users_by_id.get(msg.get("receiver_id"))
+            if receiver_info:
+                receiver_data = {
+                    "id": receiver_info.get("id"),
+                    "full_name": receiver_info.get("full_name") or "Unknown",
+                    "avatar_url": receiver_info.get("avatar_url")
+                }
+            else:
                 receiver_data = {"id": msg.get("receiver_id"), "full_name": "Unknown", "avatar_url": None}
         
         # Get event info (if exists)
         event_data = None
         if msg.get("event_id"):
-            try:
-                event_result = supabase.table("events").select("id, title").eq("id", msg.get("event_id")).single().execute()
-                if event_result.data:
-                    event_data = {
-                        "id": event_result.data.get("id"),
-                        "title": event_result.data.get("title") or "Unknown Event"
-                    }
-            except Exception:
+            event_info = events_by_id.get(msg.get("event_id"))
+            if event_info:
+                event_data = {
+                    "id": event_info.get("id"),
+                    "title": event_info.get("title") or "Unknown Event"
+                }
+            else:
                 event_data = {"id": msg.get("event_id"), "title": "Unknown Event"}
         
         result.append(MessageDetail(

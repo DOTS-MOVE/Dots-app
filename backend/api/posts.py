@@ -131,45 +131,60 @@ async def get_posts(
     result = []
     current_user_id = current_user.get("id") if current_user and isinstance(current_user, dict) else None
     
-    for post in posts_result.data:
-        # Get like count - handle errors gracefully
-        like_count = 0
+    posts = posts_result.data or []
+    post_ids = [post.get("id") for post in posts if post.get("id") is not None]
+    user_ids = list({post.get("user_id") for post in posts if post.get("user_id") is not None})
+
+    # Batch likes for all returned posts.
+    like_counts = {}
+    liked_posts = set()
+    if post_ids:
         try:
-            likes_result = supabase.table("likes").select("id", count="exact").eq("post_id", post["id"]).execute()
-            like_count = likes_result.count if likes_result.count is not None else 0
+            likes_result = supabase.table("likes").select("post_id, user_id").in_("post_id", post_ids).execute()
+            for row in (likes_result.data or []):
+                pid = row.get("post_id")
+                if pid is None:
+                    continue
+                like_counts[pid] = like_counts.get(pid, 0) + 1
+                if current_user_id is not None and row.get("user_id") == current_user_id:
+                    liked_posts.add(pid)
         except Exception:
-            like_count = 0
-        
-        # Check if current user liked it - handle errors gracefully
-        is_liked = False
-        if current_user_id:
-            try:
-                user_like = supabase.table("likes").select("id").eq("post_id", post["id"]).eq("user_id", current_user_id).execute()
-                is_liked = len(user_like.data) > 0 if user_like.data else False
-            except Exception:
-                is_liked = False
-        
-        # Get user info (with error handling for missing users)
-        user_dict = None
+            like_counts = {}
+            liked_posts = set()
+
+    # Batch user lookup for all post owners.
+    users_by_id = {}
+    if user_ids:
         try:
-            user_result = supabase.table("users").select("id, full_name, avatar_url").eq("id", post["user_id"]).single().execute()
-            if user_result.data:
-                user_dict = {
-                    "id": user_result.data.get("id"),
-                    "full_name": user_result.data.get("full_name") or "Unknown User",
-                    "avatar_url": user_result.data.get("avatar_url")
+            users_result = supabase.table("users").select("id, full_name, avatar_url").in_("id", user_ids).execute()
+            for row in (users_result.data or []):
+                uid = row.get("id")
+                if uid is None:
+                    continue
+                users_by_id[uid] = {
+                    "id": uid,
+                    "full_name": row.get("full_name") or "Unknown User",
+                    "avatar_url": row.get("avatar_url")
                 }
         except Exception:
-            # User not found, use defaults
-            user_dict = {
-                "id": post["user_id"],
-                "full_name": "Unknown User",
-                "avatar_url": None
-            }
-        
+            users_by_id = {}
+
+    for post in posts:
+        post_id = post.get("id")
+        if not post_id:
+            continue
+        like_count = like_counts.get(post_id, 0)
+        is_liked = current_user_id is not None and post_id in liked_posts
+        owner_id = post.get("user_id")
+        user_dict = users_by_id.get(owner_id, {
+            "id": owner_id,
+            "full_name": "Unknown User",
+            "avatar_url": None
+        })
+
         result.append(PostResponse(
-            id=post["id"],
-            user_id=post["user_id"],
+            id=post_id,
+            user_id=owner_id,
             content=post["content"],
             image_url=post.get("image_url"),
             created_at=post["created_at"],
