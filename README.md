@@ -99,6 +99,10 @@ dots/
 # Create a new migration
 alembic revision --autogenerate -m "description"
 
+# By default this uses the local DATABASE_URL in your current environment.
+# To run against Supabase, point DATABASE_URL at your Supabase Postgres endpoint first:
+export DATABASE_URL="postgresql://postgres:[YOUR-PASSWORD]@db.[YOUR_PROJECT_REF].supabase.co:5432/postgres?sslmode=require"
+
 # Apply migrations
 alembic upgrade head
 
@@ -118,4 +122,3 @@ alembic downgrade -1
 ## License
 
 MIT
-
