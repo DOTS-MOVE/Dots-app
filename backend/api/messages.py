@@ -337,186 +337,29 @@ async def list_conversations(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    try:
+        conversations_result = supabase.rpc("list_conversations_for_user", {"_user_id": user_id}).execute()
+        conversations_rows = conversations_result.data if conversations_result.data else []
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to load conversations: {str(e)}"
+        )
+
     conversations = []
-
-    # Get 1:1 conversations (batched)
-    try:
-        sent_result = supabase.table("messages").select("receiver_id").eq("sender_id", user_id).not_.is_("receiver_id", "null").execute()
-        sent_user_ids = set([m.get("receiver_id") for m in (sent_result.data or []) if m.get("receiver_id")])
-        received_result = supabase.table("messages").select("sender_id").eq("receiver_id", user_id).execute()
-        received_user_ids = set([m.get("sender_id") for m in (received_result.data or []) if m.get("sender_id")])
-        user_ids = list(sent_user_ids.union(received_user_ids))
-
-        if user_ids:
-            # Batch: all users
-            users_by_id = {}
-            users_result = supabase.table("users").select("id, full_name, avatar_url").in_("id", user_ids).execute()
-            if users_result.data:
-                users_by_id = {u["id"]: u for u in users_result.data}
-
-            # Batch: latest message per conversation (limit rows to avoid huge payloads)
-            last_msg_by_peer = {}
-            try:
-                sent_msgs = supabase.table("messages").select("receiver_id, content, created_at").eq("sender_id", user_id).in_("receiver_id", user_ids).is_("event_id", "null").is_("group_id", "null").order("created_at", desc=True).limit(200).execute()
-                for m in (sent_msgs.data or []):
-                    rid = m.get("receiver_id")
-                    if rid and rid not in last_msg_by_peer:
-                        last_msg_by_peer[rid] = {"content": m.get("content"), "created_at": m.get("created_at")}
-                recv_msgs = supabase.table("messages").select("sender_id, content, created_at").eq("receiver_id", user_id).in_("sender_id", user_ids).is_("event_id", "null").is_("group_id", "null").order("created_at", desc=True).limit(200).execute()
-                for m in (recv_msgs.data or []):
-                    sid = m.get("sender_id")
-                    if sid and (sid not in last_msg_by_peer or (m.get("created_at") or "") > (last_msg_by_peer[sid].get("created_at") or "")):
-                        last_msg_by_peer[sid] = {"content": m.get("content"), "created_at": m.get("created_at")}
-            except Exception:
-                pass
-
-            # Batch: unread counts per sender
-            unread_by_sender = {uid: 0 for uid in user_ids}
-            try:
-                unread_result = supabase.table("messages").select("sender_id").eq("receiver_id", user_id).in_("sender_id", user_ids).eq("is_read", False).execute()
-                if unread_result.data:
-                    for row in unread_result.data:
-                        sid = row.get("sender_id")
-                        if sid is not None:
-                            unread_by_sender[sid] = unread_by_sender.get(sid, 0) + 1
-            except Exception:
-                pass
-
-            for other_user_id in user_ids:
-                user_data = users_by_id.get(other_user_id)
-                if not user_data:
-                    continue
-                last_message = last_msg_by_peer.get(other_user_id)
-                conversations.append({
-                    "type": "user",
-                    "id": other_user_id,
-                    "name": user_data.get("full_name") or "Unknown",
-                    "avatar_url": user_data.get("avatar_url"),
-                    "last_message": {
-                        "content": last_message.get("content") if last_message else None,
-                        "created_at": last_message.get("created_at") if last_message else None
-                    },
-                    "unread_count": unread_by_sender.get(other_user_id, 0)
-                })
-    except Exception:
-        pass
-    
-    # Get event conversations
-    try:
-        event_result = supabase.table("messages").select("event_id").eq("sender_id", user_id).not_.is_("event_id", "null").execute()
-        event_ids = list(set([m.get("event_id") for m in (event_result.data or []) if m.get("event_id")]))
-        if event_ids:
-            events_by_id = {}
-            try:
-                event_rows_result = supabase.table("events").select("id, title, image_url").in_("id", event_ids).execute()
-                if event_rows_result.data:
-                    events_by_id = {e["id"]: e for e in event_rows_result.data}
-            except Exception:
-                pass
-
-            last_msg_by_event = {}
-            try:
-                last_events_result = (
-                    supabase.table("messages")
-                    .select("event_id, content, created_at")
-                    .in_("event_id", event_ids)
-                    .order("created_at", desc=True)
-                    .execute()
-                )
-                for row in (last_events_result.data or []):
-                    eid = row.get("event_id")
-                    if eid is not None and eid not in last_msg_by_event:
-                        last_msg_by_event[eid] = {
-                            "content": row.get("content"),
-                            "created_at": row.get("created_at")
-                        }
-            except Exception:
-                pass
-
-            for event_id in event_ids:
-                event_data = events_by_id.get(event_id)
-                if not event_data:
-                    continue
-                last_message = last_msg_by_event.get(event_id)
-                conversations.append({
-                    "type": "event",
-                    "id": event_id,
-                    "name": event_data.get("title") or "Unknown Event",
-                    "avatar_url": event_data.get("image_url"),
-                    "last_message": {
-                        "content": last_message.get("content") if last_message else None,
-                        "created_at": last_message.get("created_at") if last_message else None
-                    },
-                    "unread_count": 0
-                })
-    except Exception:
-        pass
-    
-    # Get group conversations
-    try:
-        # Get groups user is a member of
-        group_members_result = supabase.table("group_members").select("group_id").eq("user_id", user_id).execute()
-        group_ids = list(set([g.get("group_id") for g in (group_members_result.data or []) if g.get("group_id")]))
-        if group_ids:
-            groups_by_id = {}
-            try:
-                group_rows_result = supabase.table("group_chats").select("id, name, avatar_url").in_("id", group_ids).execute()
-                if group_rows_result.data:
-                    groups_by_id = {g["id"]: g for g in group_rows_result.data}
-            except Exception:
-                pass
-
-            last_msg_by_group = {}
-            try:
-                last_groups_result = (
-                    supabase.table("messages")
-                    .select("group_id, content, created_at")
-                    .in_("group_id", group_ids)
-                    .order("created_at", desc=True)
-                    .execute()
-                )
-                for row in (last_groups_result.data or []):
-                    gid = row.get("group_id")
-                    if gid is not None and gid not in last_msg_by_group:
-                        last_msg_by_group[gid] = {
-                            "content": row.get("content"),
-                            "created_at": row.get("created_at")
-                        }
-            except Exception:
-                pass
-
-            member_count_by_group = {}
-            try:
-                group_member_rows = supabase.table("group_members").select("group_id").in_("group_id", group_ids).execute()
-                for row in (group_member_rows.data or []):
-                    gid = row.get("group_id")
-                    if gid is not None:
-                        member_count_by_group[gid] = member_count_by_group.get(gid, 0) + 1
-            except Exception:
-                pass
-
-            for group_id in group_ids:
-                group_data = groups_by_id.get(group_id)
-                if not group_data:
-                    continue
-                last_message = last_msg_by_group.get(group_id)
-                conversations.append({
-                    "type": "group",
-                    "id": group_id,
-                    "name": group_data.get("name") or "Unknown Group",
-                    "avatar_url": group_data.get("avatar_url"),
-                    "member_count": member_count_by_group.get(group_id, 0),
-                    "last_message": {
-                        "content": last_message.get("content") if last_message else None,
-                        "created_at": last_message.get("created_at") if last_message else None
-                    },
-                    "unread_count": 0
-                })
-    except Exception:
-        pass
-    
-    # Sort by last message time
-    conversations.sort(key=lambda x: x.get("last_message", {}).get("created_at") or "", reverse=True)
+    for row in conversations_rows:
+        conversations.append({
+            "type": row.get("conversation_type"),
+            "id": row.get("conversation_id"),
+            "name": row.get("name"),
+            "avatar_url": row.get("avatar_url"),
+            "member_count": row.get("member_count"),
+            "last_message": {
+                "content": row.get("last_message_content"),
+                "created_at": row.get("last_message_created_at")
+            },
+            "unread_count": row.get("unread_count", 0)
+        })
     
     return conversations
 

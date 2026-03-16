@@ -292,23 +292,18 @@ async def list_buddies(
     
     # Get all buddies where user is user1 or user2
     try:
-        buddies1_result = supabase.table("buddies").select("*").eq("user1_id", user_id).execute()
-        buddies1 = buddies1_result.data if buddies1_result.data else []
-        buddies2_result = supabase.table("buddies").select("*").eq("user2_id", user_id).execute()
-        buddies2 = buddies2_result.data if buddies2_result.data else []
-        all_buddies = buddies1 + buddies2
-        buddy_ids = set()
-        buddies = []
-        for buddy in all_buddies:
-            if buddy["id"] not in buddy_ids and (not status_filter or buddy.get("status") == status_filter):
-                buddies.append(buddy)
-                buddy_ids.add(buddy["id"])
-    except Exception:
+        rpc_params = {"_user_id": user_id}
+        if status_filter:
+            rpc_params["_status_filter"] = status_filter
+        buddies_result = supabase.rpc("list_buddies_for_user", rpc_params).execute()
+        buddies = buddies_result.data if buddies_result.data else []
+    except Exception as e:
         logger.exception(
             "Operational failure listing buddies",
             extra={
                 "user_id": user_id,
                 "status_filter": status_filter,
+                "error": str(e),
             },
         )
         raise HTTPException(
@@ -319,70 +314,20 @@ async def list_buddies(
     if not buddies:
         return []
 
-    # Batch fetch: collect all user ids
-    user_ids = list(set(buddy["user1_id"] for buddy in buddies) | set(buddy["user2_id"] for buddy in buddies))
-
-    # Single query for all users
-    users_by_id = {}
-    try:
-        users_result = supabase.table("users").select("id, full_name, age, location, avatar_url, bio").in_("id", user_ids).execute()
-        if users_result.data:
-            users_by_id = {u["id"]: u for u in users_result.data}
-    except Exception:
-        pass
-
-    # Single query for all user_sports (with sports joined)
-    sports_by_user = {uid: [] for uid in user_ids}
-    try:
-        us_result = supabase.table("user_sports").select("user_id, sport_id, sports(*)").in_("user_id", user_ids).execute()
-        if us_result.data:
-            for item in us_result.data:
-                uid = item.get("user_id")
-                s = item.get("sports")
-                if uid is not None and s:
-                    sports_by_user.setdefault(uid, []).append(s)
-    except Exception:
-        pass
-
-    # Single query for all user_goals (with goals joined)
-    goals_by_user = {uid: [] for uid in user_ids}
-    try:
-        ug_result = supabase.table("user_goals").select("user_id, goal_id, goals(*)").in_("user_id", user_ids).execute()
-        if ug_result.data:
-            for item in ug_result.data:
-                uid = item.get("user_id")
-                g = item.get("goals")
-                if uid is not None and g:
-                    goals_by_user.setdefault(uid, []).append(g)
-    except Exception:
-        pass
-
-    def user_detail(uid):
-        u = users_by_id.get(uid) or {"id": uid, "full_name": "Unknown", "age": None, "location": None, "avatar_url": None, "bio": None}
-        sports = sports_by_user.get(uid) or []
-        goals = goals_by_user.get(uid) or []
-        return {
-            "id": u.get("id"),
-            "full_name": u.get("full_name") or "Unknown",
-            "age": u.get("age"),
-            "location": u.get("location"),
-            "avatar_url": u.get("avatar_url"),
-            "bio": u.get("bio"),
-            "sports": [{"id": s.get("id"), "name": s.get("name"), "icon": s.get("icon")} for s in sports],
-            "goals": [{"id": g.get("id"), "name": g.get("name")} for g in goals]
-        }
-
     result = []
     for buddy in buddies:
+        created_at = buddy.get("created_at")
+        if isinstance(created_at, str):
+            created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
         result.append(BuddyDetail(
             id=buddy["id"],
             user1_id=buddy["user1_id"],
             user2_id=buddy["user2_id"],
             match_score=buddy.get("match_score"),
             status=buddy.get("status", "pending"),
-            created_at=datetime.fromisoformat(buddy["created_at"].replace("Z", "+00:00")) if isinstance(buddy.get("created_at"), str) else buddy.get("created_at"),
-            user1=user_detail(buddy["user1_id"]),
-            user2=user_detail(buddy["user2_id"])
+            created_at=created_at,
+            user1=buddy.get("user1") or {"id": buddy["user1_id"], "full_name": "Unknown", "sports": [], "goals": []},
+            user2=buddy.get("user2") or {"id": buddy["user2_id"], "full_name": "Unknown", "sports": [], "goals": []}
         ))
     return result
 
