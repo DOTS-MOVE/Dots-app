@@ -33,59 +33,38 @@ async def get_current_user_profile(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Get photos - handle errors gracefully
-    photos = []
     try:
-        photos_result = supabase.table("user_photos").select("*").eq("user_id", user_id).order("display_order").execute()
-        photos = photos_result.data if photos_result.data else []
-    except Exception:
-        photos = []
-    
-    # Get sports - handle errors gracefully
-    sports = []
-    try:
-        sports_result = supabase.table("user_sports").select("sport_id, sports(*)").eq("user_id", user_id).execute()
-        if sports_result.data:
-            for item in sports_result.data:
-                if item.get("sports"):
-                    sports.append(item["sports"])
-    except Exception:
-        sports = []
-    
-    # Get goals - handle errors gracefully
-    goals = []
-    try:
-        goals_result = supabase.table("user_goals").select("goal_id, goals(*)").eq("user_id", user_id).execute()
-        if goals_result.data:
-            for item in goals_result.data:
-                if item.get("goals"):
-                    goals.append(item["goals"])
-    except Exception:
-        goals = []
-    
-    # Build response with safe defaults
-    response = {
-        **current_user,
-        "sports": [{"id": s.get("id"), "name": s.get("name") or "Unknown", "icon": s.get("icon") or "🏃"} for s in sports if s.get("id")],
-        "goals": [{"id": g.get("id"), "name": g.get("name") or "Unknown"} for g in goals if g.get("id")],
-        "photos": [{"id": p.get("id"), "photo_url": p.get("photo_url") or "", "display_order": p.get("display_order", 0)} for p in photos if p.get("id")]
+        profile_result = supabase.rpc("get_user_profile_bundle", {"_user_id": user_id}).execute()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to load profile: {str(e)}"
+        )
+
+    profile_row = profile_result.data[0] if profile_result.data else None
+    if not profile_row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User profile not found"
+        )
+
+    return {
+        "id": profile_row.get("id"),
+        "email": profile_row.get("email"),
+        "full_name": profile_row.get("full_name"),
+        "age": profile_row.get("age"),
+        "bio": profile_row.get("bio"),
+        "location": profile_row.get("location"),
+        "avatar_url": profile_row.get("avatar_url"),
+        "cover_image_url": profile_row.get("cover_image_url"),
+        "is_discoverable": profile_row.get("is_discoverable", False),
+        "profile_completed": profile_row.get("profile_completed", False),
+        "created_at": profile_row.get("created_at"),
+        "updated_at": profile_row.get("updated_at"),
+        "sports": profile_row.get("sports") or [],
+        "goals": profile_row.get("goals") or [],
+        "photos": profile_row.get("photos") or []
     }
-    
-    # Ensure all required fields have defaults
-    if not response.get("full_name"):
-        response["full_name"] = None
-    if not response.get("avatar_url"):
-        response["avatar_url"] = None
-    if not response.get("cover_image_url"):
-        response["cover_image_url"] = None
-    if not response.get("bio"):
-        response["bio"] = None
-    if not response.get("location"):
-        response["location"] = None
-    if response.get("age") is None:
-        response["age"] = None
-    
-    return response
 
 
 @router.get("/search", response_model=List[UserProfile])
@@ -406,4 +385,3 @@ async def complete_profile(
     
     # Get updated user with relations
     return await get_current_user_profile(current_user=result.data[0])
-
