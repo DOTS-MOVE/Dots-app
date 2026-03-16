@@ -1,13 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from supabase import Client
-from sqlalchemy.orm import Session
-from sqlalchemy import or_
 from typing import List, Optional
-from core.database import get_supabase, get_db
+from core.database import get_supabase
 from api.auth import get_current_user
 from schemas.user import UserResponse, UserUpdate, UserProfile, CompleteProfileRequest
 from schemas.user_photo import UserPhotoCreate, UserPhotoResponse
-from models.user import User
 
 router = APIRouter(prefix="/users", tags=["users"])
 
