@@ -1,6 +1,0 @@
-backend/
-*.md
-!README.md
-docker-compose.yml
-run.sh
-
