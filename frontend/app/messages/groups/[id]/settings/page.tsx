@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth';
 import { useRouter, useParams } from 'next/navigation';
 import Navbar from '@/components/Navbar';
 import BottomNav from '@/components/BottomNav';
+import LoadingScreen from '@/components/LoadingScreen';
 import { api } from '@/lib/api';
 import { GroupChat, User } from '@/types';
 import Link from 'next/link';
@@ -77,10 +78,10 @@ export default function GroupSettingsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 flex flex-col">
         <Navbar />
-        <div className="flex items-center justify-center h-64">
-          <div className="text-gray-600">Loading...</div>
+        <div className="flex-1 flex items-center justify-center p-4">
+          <LoadingScreen message="Loading group..." />
         </div>
         <BottomNav />
       </div>

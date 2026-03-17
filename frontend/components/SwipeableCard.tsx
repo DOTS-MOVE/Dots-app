@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import Link from 'next/link';
 import PhotoGallery from './PhotoGallery';
 import ProfileAvatar from './ProfileAvatar';
+import { MapPinIcon, CalendarIcon, BoltIcon, FlagIcon } from '@/components/Icons';
 
 interface SwipeableCardProps {
   user: {
@@ -219,7 +221,7 @@ export default function SwipeableCard({ user, score, onSwipe, onViewProfile, ind
               )}
               {user.location && (
                 <div className="flex items-center text-gray-600">
-                  <span className="text-base mr-1">📍</span>
+                  <MapPinIcon className="w-4 h-4 mr-1 flex-shrink-0 text-gray-600" aria-hidden />
                   <span className="text-base">{user.location}</span>
                 </div>
               )}
@@ -229,7 +231,7 @@ export default function SwipeableCard({ user, score, onSwipe, onViewProfile, ind
             <div className="flex items-center gap-6 mb-4 pb-4 border-b border-gray-200">
               {user.event_count !== undefined && (
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">📅</span>
+                  <CalendarIcon className="w-5 h-5 flex-shrink-0 text-gray-600" aria-hidden />
                   <div>
                     <div className="text-lg font-bold text-gray-900">{user.event_count}</div>
                     <div className="text-xs text-gray-500">Events</div>
@@ -238,7 +240,7 @@ export default function SwipeableCard({ user, score, onSwipe, onViewProfile, ind
               )}
               {user.sports && user.sports.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">🏃</span>
+                  <BoltIcon className="w-5 h-5 flex-shrink-0 text-gray-600" aria-hidden />
                   <div>
                     <div className="text-lg font-bold text-gray-900">{user.sports.length}</div>
                     <div className="text-xs text-gray-500">Sports</div>
@@ -247,7 +249,7 @@ export default function SwipeableCard({ user, score, onSwipe, onViewProfile, ind
               )}
               {user.goals && user.goals.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">🎯</span>
+                  <FlagIcon className="w-5 h-5 flex-shrink-0 text-gray-600" aria-hidden />
                   <div>
                     <div className="text-lg font-bold text-gray-900">{user.goals.length}</div>
                     <div className="text-xs text-gray-500">Goals</div>
@@ -271,20 +273,40 @@ export default function SwipeableCard({ user, score, onSwipe, onViewProfile, ind
           {user.recent_events && user.recent_events.length > 0 && (
             <div className="mb-6">
               <h3 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">Recent Events Attended</h3>
-              <div className="space-y-3">
-                {user.recent_events.map((event) => (
-                  <div key={event.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors">
-                    {event.sport?.icon && (
-                      <div className="text-2xl flex-shrink-0">{event.sport.icon}</div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 mb-1">{event.title}</div>
-                      {event.start_time && (
-                        <div className="text-xs text-gray-500">{formatDate(event.start_time)}</div>
+              <div className="space-y-2">
+                {user.recent_events.map((event) => {
+                  const isPast = new Date(event.start_time) < new Date();
+                  return (
+                    <Link
+                      key={event.id}
+                      href={`/events/${event.id}`}
+                      className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl hover:bg-[#E6F9F4] transition-colors group"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {event.sport?.icon && (
+                        <span className="text-xl flex-shrink-0">{event.sport.icon}</span>
                       )}
-                    </div>
-                  </div>
-                ))}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-gray-900 text-sm truncate group-hover:text-[#0dd9a0] transition-colors">
+                          {event.title}
+                        </div>
+                        {event.start_time && (
+                          <div className="text-xs text-gray-500 mt-0.5">{formatDate(event.start_time)}</div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {isPast && (
+                          <span className="text-[10px] font-semibold text-gray-400 bg-gray-200 px-1.5 py-0.5 rounded-md uppercase tracking-wide">
+                            Past
+                          </span>
+                        )}
+                        <svg className="w-4 h-4 text-gray-400 group-hover:text-[#0dd9a0] transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           )}

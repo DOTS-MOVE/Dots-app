@@ -58,7 +58,7 @@ export default function Navbar() {
   // While auth is loading, show neutral header (no Sign In/Join) so we don't flash logged-out state on refresh
   if (loading) {
     return (
-      <nav className="bg-white border-b border-gray-200 sticky top-0 z-50 backdrop-blur-sm bg-white/95">
+      <nav className="bg-white/95 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-50 hidden md:block">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <div className="flex items-center h-16">
@@ -73,17 +73,17 @@ export default function Navbar() {
 
   if (!user) {
     return (
-      <nav className="bg-white border-b border-gray-200 sticky top-0 z-50 backdrop-blur-sm bg-white/95">
+      <nav className="bg-white/95 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-50 hidden md:block">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <div className="flex items-center h-16">
               <Logo size="small" />
             </div>
-            <div className="flex items-center space-x-4">
-              <Link href="/login" className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
+            <div className="flex items-center space-x-3">
+              <Link href="/login" className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 rounded-xl hover:bg-gray-100 transition-all">
                 Sign In
               </Link>
-              <Link href="/register" className="px-4 py-2 text-sm font-medium text-white bg-[#0ef9b4] rounded-lg hover:bg-[#0dd9a0] transition-colors">
+              <Link href="/register" className="px-4 py-2 text-sm font-semibold text-black bg-[#0ef9b4] rounded-xl hover:bg-[#0dd9a0] transition-all shadow-sm">
                 Join
               </Link>
             </div>
@@ -108,14 +108,14 @@ export default function Navbar() {
   };
 
   return (
-    <nav className="bg-white border-b border-gray-200 sticky top-0 z-50 backdrop-blur-sm bg-white/95 hidden md:block transition-all duration-300">
+    <nav className="bg-white/95 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-50 hidden md:block">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16 items-center">
           <div className="flex items-center space-x-8">
             <div className="flex items-center h-16">
               <Logo size="small" />
             </div>
-            <div className="flex space-x-2">
+            <div className="flex space-x-1">
               {navLinks.map((link) => {
                 const active = isActive(link.href);
                 const showBadge = link.href === '/messages' && unreadCount > 0;
@@ -123,10 +123,10 @@ export default function Navbar() {
                   <Link
                     key={link.href}
                     href={link.href}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 relative ${
+                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-all relative ${
                       active
                         ? 'bg-[#E6F9F4] text-[#0dd9a0] font-semibold'
-                        : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
+                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                     }`}
                   >
                     {link.label}
@@ -140,20 +140,20 @@ export default function Navbar() {
               })}
             </div>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
             <Link
               href="/profile"
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
                 pathname === '/profile'
                   ? 'bg-[#E6F9F4] text-[#0dd9a0] font-semibold'
-                  : 'text-gray-700 hover:bg-gray-100'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
               }`}
             >
               Profile
             </Link>
             <button
               onClick={handleLogout}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+              className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-900 rounded-xl hover:bg-gray-100 transition-all"
             >
               Logout
             </button>

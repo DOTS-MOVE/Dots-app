@@ -4,6 +4,7 @@ import { useState, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Logo from '@/components/Logo';
+import LoadingScreen from '@/components/LoadingScreen';
 import { supabase } from '@/lib/supabase';
 
 function ForgotPasswordPageContent() {
@@ -139,7 +140,7 @@ export default function ForgotPasswordPage() {
             <Logo size="large" />
             <p className="text-gray-700 text-sm font-medium">Meet. Move. Motivate.</p>
           </div>
-          <div className="text-center text-gray-500">Loading...</div>
+          <LoadingScreen message="Loading..." />
         </div>
       </div>
     }>

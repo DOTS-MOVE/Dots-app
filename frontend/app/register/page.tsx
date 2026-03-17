@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Logo from '@/components/Logo';
+import { EnvelopeIcon } from '@/components/Icons';
 
 export default function RegisterPage() {
   const [email, setEmail] = useState('');
@@ -61,7 +62,7 @@ export default function RegisterPage() {
 
           <div className="bg-green-50 border border-green-200 rounded-xl p-6 space-y-4">
             <div className="text-center">
-              <div className="text-4xl mb-4">📧</div>
+              <EnvelopeIcon className="w-12 h-12 mx-auto mb-4 text-gray-500" aria-hidden />
               <h2 className="text-2xl font-bold text-gray-900 mb-2">Check your email</h2>
               <p className="text-gray-700 mb-4">
                 We've sent a confirmation link to <strong>{email}</strong>

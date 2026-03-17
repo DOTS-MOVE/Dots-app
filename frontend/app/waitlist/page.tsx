@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Logo from '@/components/Logo';
 import Navbar from '@/components/Navbar';
+import { CheckCircleIcon } from '@/components/Icons';
 import { api } from '@/lib/api';
 
 type Tab = 'waitlist' | 'expansion';
@@ -153,7 +154,7 @@ export default function WaitlistPage() {
             <>
               {success ? (
             <div className="text-center py-8">
-              <div className="text-6xl mb-4">✅</div>
+              <CheckCircleIcon className="w-16 h-16 mx-auto mb-4 text-green-500" aria-hidden />
               <h2 className="text-2xl font-bold text-gray-900 mb-4">Thanks for joining!</h2>
               <p className="text-gray-600 mb-6">
                 We&apos;ll keep you updated on when Dots launches in your area.
@@ -254,7 +255,7 @@ export default function WaitlistPage() {
             <div className="space-y-8">
               {expansionSuccess ? (
                 <div className="text-center py-8">
-                  <div className="text-6xl mb-4">✅</div>
+                  <CheckCircleIcon className="w-16 h-16 mx-auto mb-4 text-green-500" aria-hidden />
                   <h2 className="text-2xl font-bold text-gray-900 mb-4">Thanks for your suggestions!</h2>
                   <p className="text-gray-600 mb-6">
                     We&apos;ll keep you updated on when Dots launches in your suggested cities.

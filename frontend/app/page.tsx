@@ -8,7 +8,8 @@ import EventCardLarge from '@/components/EventCardLarge';
 import ProfileAvatar from '@/components/ProfileAvatar';
 import SearchBar from '@/components/SearchBar';
 import FilterChips from '@/components/FilterChips';
-import { Skeleton } from '@/components/SkeletonLoader';
+import LoadingScreen from '@/components/LoadingScreen';
+import { SparklesIcon, CalendarDaysIcon } from '@/components/Icons';
 import { useEvents, useSports } from '@/lib/hooks';
 import { api } from '@/lib/api';
 import { Event, User } from '@/types';
@@ -126,39 +127,10 @@ export default function Home() {
   // events can show immediately; profile banner and user-specific UI use !loading && user.
   if (loadingData) {
     return (
-      <div className="min-h-screen bg-gray-50 pb-20 md:pb-0">
+      <div className="min-h-screen bg-gray-50 pb-20 md:pb-0 flex flex-col">
         <Navbar />
-        <div className="bg-gradient-to-br from-[#0ef9b4] via-[#0dd9a0] to-[#0ef9b4] pt-12 pb-16">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-12">
-              <Skeleton className="h-12 w-96 mx-auto mb-6" />
-              <Skeleton className="h-6 w-80 mx-auto" />
-            </div>
-            <div className="max-w-3xl mx-auto space-y-6">
-              <Skeleton className="h-12 w-full" />
-              <div className="flex gap-2">
-                {[1, 2, 3, 4].map(i => (
-                  <Skeleton key={i} className="h-8 w-20" />
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <Skeleton className="h-8 w-48 mb-10" />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                <Skeleton className="h-48 w-full" />
-                <div className="p-6">
-                  <Skeleton className="h-6 w-3/4 mb-3" />
-                  <Skeleton className="h-4 w-full mb-2" />
-                  <Skeleton className="h-4 w-2/3 mb-4" />
-                  <Skeleton className="h-10 w-32" />
-                </div>
-              </div>
-            ))}
-          </div>
+        <div className="flex-1 flex items-center justify-center p-4">
+          <LoadingScreen message="Loading events..." />
         </div>
         <BottomNav />
       </div>
@@ -173,13 +145,13 @@ export default function Home() {
       <Navbar />
       
       {/* Hero Section */}
-      <div className="bg-gradient-to-br from-[#0ef9b4] via-[#0dd9a0] to-[#0ef9b4] pt-12 pb-16">
+      <div className="dots-gradient-hero pt-12 pb-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Profile Completion Banner */}
           {profileIncomplete && (
             <div className="bg-white/95 backdrop-blur-md border border-white/30 rounded-2xl p-5 mb-8 shadow-xl animate-in slide-in-from-top-4 duration-500">
               <div className="flex items-start space-x-4">
-                <span className="text-2xl">✨</span>
+                <SparklesIcon className="w-8 h-8 text-amber-500 flex-shrink-0" aria-hidden />
                 <div className="flex-1">
                   <h3 className="font-bold text-gray-900 text-lg mb-2">Complete your profile</h3>
                   <p className="text-sm text-gray-700 mb-4">For recommendations, messaging and more!</p>
@@ -304,9 +276,9 @@ export default function Home() {
               <h2 className="text-2xl font-bold text-gray-900">Events</h2>
               <span className="text-sm text-gray-500">{events.length} result{events.length !== 1 ? 's' : ''}</span>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
               {events.map((event) => (
-                <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4">
+                <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4 h-full">
                   <EventCardLarge event={event} />
                 </div>
               ))}
@@ -331,19 +303,20 @@ export default function Home() {
 
         {/* Featured Events - Only show when not searching */}
         {!searchQuery.trim() && featuredEvents.length > 0 && (
-          <div className="mb-20 animate-in fade-in duration-500">
-            <div className="flex items-center justify-between mb-10">
-              <h2 className="text-3xl font-bold text-gray-900">Featured Events</h2>
-              <Link 
-                href="/events" 
-                className="bg-[#0ef9b4] text-black px-6 py-2.5 rounded-xl font-semibold hover:bg-[#0dd9a0] transition-all duration-300 shadow-md hover:shadow-lg"
+          <div className="mb-12 animate-in fade-in duration-500">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-2xl font-bold text-gray-900">Featured Events</h2>
+              <Link
+                href="/events"
+                className="inline-flex items-center gap-1.5 bg-[#0ef9b4] text-black px-5 py-2 rounded-xl font-semibold hover:bg-[#0dd9a0] transition-all shadow-sm hover:shadow-md text-sm"
               >
-                View all →
+                View all
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
               </Link>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
               {featuredEvents.map((event, index) => (
-                <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4" style={{ animationDelay: `${index * 100}ms` }}>
+                <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4 h-full" style={{ animationDelay: `${index * 100}ms` }}>
                   <EventCardLarge event={event} />
                 </div>
               ))}
@@ -354,18 +327,19 @@ export default function Home() {
         {/* All Events - Only show when not searching */}
         {!searchQuery.trim() && otherEvents.length > 0 && (
           <div className="animate-in fade-in duration-500">
-            <div className="flex items-center justify-between mb-10">
-              <h2 className="text-3xl font-bold text-gray-900">All Events</h2>
-              <Link 
-                href="/events/create" 
-                className="bg-[#0ef9b4] text-black px-6 py-2.5 rounded-xl font-semibold hover:bg-[#0dd9a0] transition-all duration-300 shadow-md hover:shadow-lg"
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-2xl font-bold text-gray-900">All Events</h2>
+              <Link
+                href="/events/create"
+                className="inline-flex items-center gap-1.5 bg-[#0ef9b4] text-black px-5 py-2 rounded-xl font-semibold hover:bg-[#0dd9a0] transition-all shadow-sm hover:shadow-md text-sm"
               >
-                + Create Event
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                Create Event
               </Link>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
               {otherEvents.map((event, index) => (
-                <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4" style={{ animationDelay: `${index * 50}ms` }}>
+                <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4 h-full" style={{ animationDelay: `${index * 50}ms` }}>
                   <EventCardLarge event={event} />
                 </div>
               ))}
@@ -375,11 +349,11 @@ export default function Home() {
 
         {/* Previous Events - Only show when not searching */}
         {!searchQuery.trim() && pastEvents.length > 0 && (
-          <div className="mt-20 animate-in fade-in duration-500">
-            <h2 className="text-2xl font-bold text-gray-500 mb-10">Previous Events</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="mt-12 animate-in fade-in duration-500">
+            <h2 className="text-xl font-semibold text-gray-400 mb-6 uppercase tracking-wide text-sm">Previous Events</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
               {pastEvents.map((event, index) => (
-                <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4 opacity-90" style={{ animationDelay: `${index * 50}ms` }}>
+                <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4 opacity-90 h-full" style={{ animationDelay: `${index * 50}ms` }}>
                   <EventCardLarge event={event} />
                 </div>
               ))}
@@ -390,7 +364,7 @@ export default function Home() {
         {/* Empty State - Only show when not searching and no upcoming events */}
         {!searchQuery.trim() && futureEvents.length === 0 && (
           <div className="text-center py-16 animate-in fade-in duration-500">
-            <div className="text-6xl mb-4">🎯</div>
+            <CalendarDaysIcon className="w-16 h-16 mx-auto mb-4 text-gray-400" aria-hidden />
             <h3 className="text-2xl font-bold text-gray-900 mb-2">
               {selectedSport ? 'No upcoming events found' : pastEvents.length > 0 ? 'No upcoming events' : 'No events yet'}
             </h3>

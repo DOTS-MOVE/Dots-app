@@ -3,14 +3,27 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
-  --dots-teal: #0ef9b4;
-  --dots-teal-dark: #0dd9a0;
-  --dots-teal-light: #E6F9F4;
+  /* Standard teal scale (gradient stops) */
+  --dots-teal-darkest: #06886a;
+  --dots-teal-dark: #0aa885;
+  --dots-teal: #0dd9a0;
+  --dots-teal-mid: #5dd4b8;
+  --dots-teal-light: #b0ebe0;
+  /* Aliases for common use */
+  --dots-teal-bright: #0dd9a0;
+  --dots-teal-tint: #b0ebe0;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-dots-teal-darkest: var(--dots-teal-darkest);
+  --color-dots-teal-dark: var(--dots-teal-dark);
+  --color-dots-teal: var(--dots-teal);
+  --color-dots-teal-mid: var(--dots-teal-mid);
+  --color-dots-teal-light: var(--dots-teal-light);
+  --color-dots-teal-bright: var(--dots-teal-bright);
+  --color-dots-teal-tint: var(--dots-teal-tint);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -21,11 +34,11 @@ body {
   font-family: var(--font-geist-sans), system-ui, sans-serif;
 }
 
-/* Smooth page transitions */
-* {
+/* Smooth transitions on interactive elements only */
+a, button, [role="button"], input, select, textarea, label {
   transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 200ms;
+  transition-duration: 150ms;
 }
 
 /* Custom scrollbar */
@@ -38,12 +51,50 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #0ef9b4;
+  background: var(--dots-teal);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #0dd9a0;
+  background: var(--dots-teal-dark);
+}
+
+/* Standard diagonal gradient (light top-left → dark bottom-right) */
+.dots-gradient-bg {
+  background: linear-gradient(
+    135deg,
+    var(--dots-teal-light) 0%,
+    var(--dots-teal-mid) 25%,
+    var(--dots-teal) 50%,
+    var(--dots-teal-dark) 75%,
+    var(--dots-teal-darkest) 100%
+  );
+  background-attachment: fixed;
+  background-size: 100% 100%;
+}
+
+/* Inverted (dark top-left → light bottom-right) */
+.dots-gradient-bg-inverted {
+  background: linear-gradient(
+    135deg,
+    var(--dots-teal-darkest) 0%,
+    var(--dots-teal-dark) 25%,
+    var(--dots-teal) 50%,
+    var(--dots-teal-mid) 75%,
+    var(--dots-teal-light) 100%
+  );
+  background-attachment: fixed;
+  background-size: 100% 100%;
+}
+
+/* Hero banner: dark → brand (no fixed attachment, so it scrolls with content) */
+.dots-gradient-hero {
+  background: linear-gradient(
+    135deg,
+    var(--dots-teal-darkest) 0%,
+    var(--dots-teal-dark) 40%,
+    var(--dots-teal) 100%
+  );
 }
 
 /* Hide scrollbar for filter chips */
@@ -102,6 +153,42 @@ body {
 
 .zoom-in-95 {
   animation: zoom-in 0.3s ease-out;
+}
+
+/* Loading bar animation (staggered bars) */
+@keyframes loading-bar {
+  0%, 100% {
+    transform: scaleY(0.35);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.loading-bar {
+  animation: loading-bar 0.8s ease-in-out infinite;
+  transform-origin: bottom;
+}
+
+/* Brand favicon loader (rotate the icon itself) */
+@keyframes brand-spin {
+  0% {
+    transform: rotate(0deg) scale(0.98);
+  }
+  50% {
+    transform: rotate(180deg) scale(1);
+  }
+  100% {
+    transform: rotate(360deg) scale(0.98);
+  }
+}
+
+.brand-spin {
+  animation: brand-spin 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  transform-origin: center;
+  will-change: transform;
 }
 
 /* Leaflet map styles */

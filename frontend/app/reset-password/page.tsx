@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Logo from '@/components/Logo';
+import LoadingScreen from '@/components/LoadingScreen';
 import { supabase } from '@/lib/supabase';
 
 function ResetPasswordPageContent() {
@@ -287,7 +288,7 @@ export default function ResetPasswordPage() {
             <Logo size="large" />
             <p className="text-gray-700 text-sm font-medium">Meet. Move. Motivate.</p>
           </div>
-          <div className="text-center text-gray-500">Loading...</div>
+          <LoadingScreen message="Loading..." />
         </div>
       </div>
     }>

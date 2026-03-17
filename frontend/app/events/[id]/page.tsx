@@ -8,6 +8,7 @@ import Navbar from '@/components/Navbar';
 import BottomNav from '@/components/BottomNav';
 import ProfileAvatar from '@/components/ProfileAvatar';
 import { EventDetailSkeleton } from '@/components/SkeletonLoader';
+import { CalendarIcon, MapPinIcon, UsersIcon, ClockIcon, CheckIcon, ClockWaitingIcon } from '@/components/Icons';
 import { api } from '@/lib/api';
 import { Event } from '@/types';
 
@@ -151,6 +152,8 @@ export default function EventDetailPage() {
     return `${formatDate(dateString)} at ${formatTime(dateString)}`;
   };
 
+  const isPastEvent = new Date(event.start_time) < new Date();
+
   // Get sport emoji/icon and gradient
   const sportStyles: { [key: string]: { icon: string; gradient: string } } = {
     'Running': { icon: '🏃', gradient: 'from-orange-400 to-red-500' },
@@ -178,12 +181,12 @@ export default function EventDetailPage() {
         {/* Back button */}
         <Link
           href="/events"
-          className="absolute top-4 left-4 z-10 flex items-center gap-2 px-4 py-2 bg-black/40 hover:bg-black/60 text-white rounded-xl font-medium transition-colors backdrop-blur-sm md:top-6 md:left-6"
+          className="absolute top-4 left-4 z-10 flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-xl font-medium transition-all backdrop-blur-sm md:top-6 md:left-6"
         >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
-          Back to Events
+          Back
         </Link>
         {hasHeroImage ? (
           <>
@@ -206,6 +209,14 @@ export default function EventDetailPage() {
         
         {/* Event Title Overlay */}
         <div className="absolute bottom-0 left-0 right-0 p-8 text-white">
+          {isPastEvent && (
+            <span className="inline-flex items-center gap-1.5 bg-black/40 backdrop-blur-sm text-white text-xs font-semibold px-3 py-1.5 rounded-full mb-3 border border-white/20">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Past event
+            </span>
+          )}
           <h1 className="text-4xl md:text-5xl font-bold mb-2 drop-shadow-lg">{event.title}</h1>
           {event.sport && (
             <div className="flex items-center space-x-2">
@@ -235,7 +246,7 @@ export default function EventDetailPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-gray-200">
                 <div className="flex items-start space-x-4">
                   <div className="w-12 h-12 bg-[#E6F9F4] rounded-xl flex items-center justify-center flex-shrink-0">
-                    <span className="text-2xl">📅</span>
+                    <CalendarIcon className="w-6 h-6 text-[#0dd9a0]" aria-hidden />
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Date & Time</p>
@@ -249,7 +260,7 @@ export default function EventDetailPage() {
 
                 <div className="flex items-start space-x-4">
                   <div className="w-12 h-12 bg-[#E6F9F4] rounded-xl flex items-center justify-center flex-shrink-0">
-                    <span className="text-2xl">📍</span>
+                    <MapPinIcon className="w-6 h-6 text-[#0dd9a0]" aria-hidden />
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Location</p>
@@ -259,7 +270,7 @@ export default function EventDetailPage() {
 
                 <div className="flex items-start space-x-4">
                   <div className="w-12 h-12 bg-[#E6F9F4] rounded-xl flex items-center justify-center flex-shrink-0">
-                    <span className="text-2xl">👥</span>
+                    <UsersIcon className="w-6 h-6 text-[#0dd9a0]" aria-hidden />
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-1">Participants</p>
@@ -331,6 +342,28 @@ export default function EventDetailPage() {
           {/* Right Column - Action Sidebar */}
           <div className="lg:col-span-1">
             <div className="bg-white rounded-3xl shadow-lg p-6 sticky top-8">
+              {isPastEvent ? (
+                <div className="flex flex-col items-center gap-3 py-4">
+                  <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div className="text-center">
+                    <p className="font-semibold text-gray-700 text-sm">This event has ended</p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {isParticipant ? 'You attended this event' : 'RSVPs are now closed'}
+                    </p>
+                  </div>
+                  {isParticipant && (
+                    <div className="flex items-center gap-1.5 text-[#0dd9a0] text-sm font-semibold">
+                      <CheckIcon className="w-4 h-4" aria-hidden />
+                      You attended
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
               {event.host_id === user?.id && (
                 <Link
                   href="/profile?tab=events"
@@ -344,7 +377,7 @@ export default function EventDetailPage() {
                   {isParticipant ? (
                     <>
                       <div className="flex items-center space-x-2 text-[#0dd9a0] mb-4">
-                        <span className="text-2xl">✓</span>
+                        <CheckIcon className="w-6 h-6 flex-shrink-0" aria-hidden />
                         <span className="font-semibold">You're going!</span>
                       </div>
                       <button
@@ -358,7 +391,7 @@ export default function EventDetailPage() {
                   ) : event.rsvp_status === 'pending' ? (
                     <>
                       <div className="flex items-center space-x-2 text-amber-600 mb-4">
-                        <span className="text-2xl">⏳</span>
+                        <ClockWaitingIcon className="w-6 h-6 flex-shrink-0" aria-hidden />
                         <span className="font-semibold">Request sent</span>
                       </div>
                       <p className="text-sm text-gray-600 mb-4">Waiting for host approval</p>
@@ -401,6 +434,8 @@ export default function EventDetailPage() {
                   )}
                 </div>
               )}
+                </>
+              )}
 
               {/* Quick Info */}
               <div className="mt-6 pt-6 border-t border-gray-200 space-y-4">
@@ -408,15 +443,15 @@ export default function EventDetailPage() {
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Event Details</p>
                   <div className="space-y-3">
                     <div className="flex items-center space-x-2 text-sm">
-                      <span>📅</span>
+                      <CalendarIcon className="w-4 h-4 text-gray-500 flex-shrink-0" aria-hidden />
                       <span className="text-gray-700">{formatDate(event.start_time)}</span>
                     </div>
                     <div className="flex items-center space-x-2 text-sm">
-                      <span>🕐</span>
+                      <ClockIcon className="w-4 h-4 text-gray-500 flex-shrink-0" aria-hidden />
                       <span className="text-gray-700">{formatTime(event.start_time)}</span>
                     </div>
                     <div className="flex items-start space-x-2 text-sm">
-                      <span>📍</span>
+                      <MapPinIcon className="w-4 h-4 text-gray-500 flex-shrink-0 mt-0.5" aria-hidden />
                       <span className="text-gray-700">{event.location}</span>
                     </div>
                   </div>
