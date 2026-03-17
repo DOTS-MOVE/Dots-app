@@ -1,0 +1,12 @@
+{
+  "name": "dots-app",
+  "version": "1.0.0",
+  "description": "Dots - Fitness Buddy Matching & Event Discovery Platform",
+  "scripts": {
+    "dev": "bash run.sh",
+    "start": "bash run.sh",
+    "backend": "cd backend && source venv/bin/activate && uvicorn main:app --reload --host 0.0.0.0 --port 8000",
+    "frontend": "cd frontend && npm run dev",
+    "install": "cd backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && cd ../frontend && npm install"
+  }
+}

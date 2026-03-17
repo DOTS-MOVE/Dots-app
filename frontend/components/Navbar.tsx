@@ -1,0 +1,166 @@
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { useAuth } from '@/lib/auth';
+import { useRouter } from 'next/navigation';
+import { useEffect, useState, useRef } from 'react';
+import { api } from '@/lib/api';
+import Logo from './Logo';
+
+export default function Navbar() {
+  const { user, loading, logout } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const [unreadCount, setUnreadCount] = useState(0);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
+
+  useEffect(() => {
+    if (!user) {
+      setUnreadCount(0);
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      return;
+    }
+
+    const loadUnreadCount = async () => {
+      try {
+        const conversations = await api.getConversations();
+        const totalUnread = conversations.reduce((sum, conv) => sum + (conv.unread_count || 0), 0);
+        setUnreadCount(totalUnread);
+      } catch (err) {
+        setUnreadCount(0);
+        // Stop polling on auth/network errors so we don't spam 401s
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+      }
+    };
+
+    loadUnreadCount();
+    pollingRef.current = setInterval(loadUnreadCount, 30000);
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [user]);
+
+  // While auth is loading, show neutral header (no Sign In/Join) so we don't flash logged-out state on refresh
+  if (loading) {
+    return (
+      <nav className="bg-white/95 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-50 hidden md:block">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16 items-center">
+            <div className="flex items-center h-16">
+              <Logo size="small" />
+            </div>
+            <div className="w-24" aria-hidden />
+          </div>
+        </div>
+      </nav>
+    );
+  }
+
+  if (!user) {
+    return (
+      <nav className="bg-white/95 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-50 hidden md:block">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16 items-center">
+            <div className="flex items-center h-16">
+              <Logo size="small" />
+            </div>
+            <div className="flex items-center space-x-3">
+              <Link href="/login" className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 rounded-xl hover:bg-gray-100 transition-all">
+                Sign In
+              </Link>
+              <Link href="/register" className="px-4 py-2 text-sm font-semibold text-black bg-[#0ef9b4] rounded-xl hover:bg-[#0dd9a0] transition-all shadow-sm">
+                Join
+              </Link>
+            </div>
+          </div>
+        </div>
+      </nav>
+    );
+  }
+
+  const navLinks = [
+    { href: '/', label: 'Home' },
+    { href: '/events', label: 'Events' },
+    { href: '/buddies', label: 'Buddies' },
+    { href: '/messages', label: 'Messages' },
+  ];
+
+  const isActive = (href: string) => {
+    if (href === '/') {
+      return pathname === '/';
+    }
+    return pathname?.startsWith(href);
+  };
+
+  return (
+    <nav className="bg-white/95 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-50 hidden md:block">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between h-16 items-center">
+          <div className="flex items-center space-x-8">
+            <div className="flex items-center h-16">
+              <Logo size="small" />
+            </div>
+            <div className="flex space-x-1">
+              {navLinks.map((link) => {
+                const active = isActive(link.href);
+                const showBadge = link.href === '/messages' && unreadCount > 0;
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-all relative ${
+                      active
+                        ? 'bg-[#E6F9F4] text-[#0dd9a0] font-semibold'
+                        : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                    }`}
+                  >
+                    {link.label}
+                    {showBadge && (
+                      <span className="absolute -top-1 -right-1 bg-[#0ef9b4] text-black text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Link
+              href="/profile"
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                pathname === '/profile'
+                  ? 'bg-[#E6F9F4] text-[#0dd9a0] font-semibold'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              }`}
+            >
+              Profile
+            </Link>
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-900 rounded-xl hover:bg-gray-100 transition-all"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      </div>
+    </nav>
+  );
+}
+
