@@ -66,8 +66,8 @@ export default function BottomNav() {
   };
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-[#0ef9b4] border-t border-[#0dd9a0] z-50 md:hidden backdrop-blur-sm">
-      <div className="flex justify-around items-center h-16">
+    <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-gray-200 z-50 md:hidden">
+      <div className="flex justify-around items-center h-16 pb-safe">
         {navItems.map((item) => {
           const active = isActive(item.href);
           return (
@@ -75,16 +75,15 @@ export default function BottomNav() {
               key={item.href}
               href={item.href}
               prefetch={true}
-              className={`flex flex-col items-center justify-center flex-1 h-full transition-all duration-300 ${
-                active 
-                  ? 'text-black scale-110' 
-                  : 'text-black/70 hover:text-black/90'
+              aria-label={item.label}
+              className={`flex flex-col items-center justify-center flex-1 h-full gap-1 transition-all duration-200 ${
+                active ? 'text-[#0dd9a0]' : 'text-gray-400 hover:text-gray-600'
               }`}
             >
-              <span className={`mb-1 transition-transform duration-300 ${active ? 'scale-110' : ''}`}>
+              <span className={`transition-transform duration-200 ${active ? 'scale-110' : ''}`}>
                 {item.icon}
               </span>
-              <span className={`text-xs font-medium ${active ? 'font-semibold' : ''}`}>
+              <span className={`text-[10px] ${active ? 'font-semibold' : 'font-medium'}`}>
                 {item.label}
               </span>
             </Link>

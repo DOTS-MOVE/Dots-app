@@ -5,6 +5,8 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { Event } from '@/types';
 import Link from 'next/link';
+import LoadingScreen from '@/components/LoadingScreen';
+import { UsersIcon } from '@/components/Icons';
 import 'leaflet/dist/leaflet.css';
 
 // Fix for default marker icons in Next.js
@@ -133,8 +135,8 @@ export default function EventsMap({ events, userLocation }: EventsMapProps) {
 
   if (!mounted) {
     return (
-      <div className="w-full h-[600px] bg-gray-200 rounded-3xl flex items-center justify-center">
-        <div className="text-gray-600">Loading map...</div>
+      <div className="w-full h-[600px] bg-gray-100 rounded-3xl flex items-center justify-center">
+        <LoadingScreen message="Loading map..." />
       </div>
     );
   }
@@ -215,8 +217,9 @@ export default function EventsMap({ events, userLocation }: EventsMapProps) {
                   </p>
                 )}
                 {event.participant_count !== undefined && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    👥 {event.participant_count}
+                  <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                    <UsersIcon className="w-3.5 h-3.5 flex-shrink-0" aria-hidden />
+                    {event.participant_count}
                     {event.max_participants && ` / ${event.max_participants}`} participants
                   </p>
                 )}

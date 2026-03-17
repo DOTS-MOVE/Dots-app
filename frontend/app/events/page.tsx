@@ -7,7 +7,8 @@ import EventCardLarge from '@/components/EventCardLarge';
 import EventsCalendar from '@/components/EventsCalendar';
 import SearchBar from '@/components/SearchBar';
 import FilterChips from '@/components/FilterChips';
-import { Skeleton } from '@/components/SkeletonLoader';
+import LoadingScreen from '@/components/LoadingScreen';
+import { CalendarDaysIcon } from '@/components/Icons';
 import { useEvents, useSports } from '@/lib/hooks';
 import { Event } from '@/types';
 import Link from 'next/link';
@@ -62,42 +63,10 @@ export default function EventsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 pb-20 md:pb-0">
+      <div className="min-h-screen bg-gray-50 pb-20 md:pb-0 flex flex-col">
         <Navbar />
-        <div className="bg-gradient-to-br from-[#0ef9b4] via-[#0dd9a0] to-[#0ef9b4] pt-12 pb-16">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-12">
-              <Skeleton className="h-12 w-96 mx-auto mb-6" />
-              <Skeleton className="h-6 w-80 mx-auto" />
-            </div>
-            <div className="max-w-3xl mx-auto space-y-6">
-              <Skeleton className="h-12 w-full" />
-              <div className="flex gap-2">
-                {[1, 2, 3, 4].map(i => (
-                  <Skeleton key={i} className="h-8 w-20" />
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <div className="flex items-center justify-between mb-10">
-            <Skeleton className="h-8 w-48" />
-            <Skeleton className="h-10 w-32" />
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {[1, 2, 3, 4, 5, 6].map(i => (
-              <div key={i} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                <Skeleton className="h-48 w-full" />
-                <div className="p-6">
-                  <Skeleton className="h-6 w-3/4 mb-3" />
-                  <Skeleton className="h-4 w-full mb-2" />
-                  <Skeleton className="h-4 w-2/3 mb-4" />
-                  <Skeleton className="h-10 w-32" />
-                </div>
-              </div>
-            ))}
-          </div>
+        <div className="flex-1 flex items-center justify-center p-4">
+          <LoadingScreen message="Loading events..." />
         </div>
         <BottomNav />
       </div>
@@ -109,7 +78,7 @@ export default function EventsPage() {
       <Navbar />
       
       {/* Hero Section */}
-      <div className="bg-gradient-to-br from-[#0ef9b4] via-[#0dd9a0] to-[#0ef9b4] pt-12 pb-16 relative">
+      <div className="dots-gradient-hero pt-12 pb-16 relative">
         <Link
           href="/"
           className="absolute top-4 left-4 md:top-6 md:left-6 flex items-center gap-2 px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-xl font-medium transition-colors backdrop-blur-sm z-10"
@@ -149,7 +118,7 @@ export default function EventsPage() {
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-10 animate-in fade-in duration-500">
-          <h2 className="text-3xl font-bold text-gray-900">
+          <h2 className="text-2xl font-bold text-gray-900">
             {events.length} {events.length === 1 ? 'Event' : 'Events'} Found
           </h2>
           <div className="w-full md:w-auto flex flex-col sm:flex-row gap-3 md:gap-4">
@@ -182,11 +151,12 @@ export default function EventsPage() {
                 Calendar
               </button>
             </div>
-            <Link 
-              href="/events/create" 
-              className="w-full sm:w-auto text-center bg-[#0ef9b4] text-black px-6 py-2.5 rounded-xl font-semibold whitespace-nowrap hover:bg-[#0dd9a0] transition-all duration-300 shadow-md hover:shadow-lg"
+              <Link
+              href="/events/create"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 bg-[#0ef9b4] text-black px-5 py-2 rounded-xl font-semibold whitespace-nowrap hover:bg-[#0dd9a0] transition-all shadow-sm hover:shadow-md text-sm"
             >
-              + Create Event
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+              Create Event
             </Link>
           </div>
         </div>
@@ -195,9 +165,7 @@ export default function EventsPage() {
         {events.length === 0 ? (
           <div className="text-center py-16 animate-in fade-in duration-500">
             <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center">
-              <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+              <CalendarDaysIcon className="w-8 h-8 text-gray-400" aria-hidden />
             </div>
             <h3 className="text-2xl font-bold text-gray-900 mb-2">
               {searchQuery || selectedSport ? 'No events found' : 'No events yet'}
@@ -221,11 +189,11 @@ export default function EventsPage() {
         ) : (
           <>
             {(searchQuery.trim() || selectedSport !== null) ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
                 {events.map((event, index) => (
                   <div
                     key={event.id}
-                    className="animate-in fade-in slide-in-from-bottom-4"
+                    className="animate-in fade-in slide-in-from-bottom-4 h-full"
                     style={{ animationDelay: `${index * 50}ms` }}
                   >
                     <EventCardLarge event={event} />
@@ -236,12 +204,12 @@ export default function EventsPage() {
               <>
                 {futureEvents.length > 0 && (
                   <div className="mb-16">
-                    <h3 className="text-2xl font-bold text-gray-900 mb-8">Upcoming Events</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <h3 className="text-2xl font-bold text-gray-900 mb-6">Upcoming Events</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
                       {futureEvents.map((event, index) => (
                         <div
                           key={event.id}
-                          className="animate-in fade-in slide-in-from-bottom-4"
+                          className="animate-in fade-in slide-in-from-bottom-4 h-full"
                           style={{ animationDelay: `${index * 50}ms` }}
                         >
                           <EventCardLarge event={event} />
@@ -253,12 +221,12 @@ export default function EventsPage() {
 
                 {pastEvents.length > 0 && (
                   <div className="mt-8">
-                    <h3 className="text-2xl font-bold text-gray-500 mb-8">Previous Events</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-6">Previous Events</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
                       {pastEvents.map((event, index) => (
                         <div
                           key={event.id}
-                          className="animate-in fade-in slide-in-from-bottom-4 opacity-90"
+                          className="animate-in fade-in slide-in-from-bottom-4 opacity-90 h-full"
                           style={{ animationDelay: `${index * 50}ms` }}
                         >
                           <EventCardLarge event={event} />

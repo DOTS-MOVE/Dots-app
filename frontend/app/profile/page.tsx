@@ -553,7 +553,7 @@ function ProfilePageContent() {
       {/* Profile Header - Facebook-style */}
       <div className="bg-white border-b border-gray-200">
         {/* Cover Photo - full width, ~2.5:1 aspect ratio like Facebook */}
-        <div className="relative w-full h-48 sm:h-56 md:h-64 bg-gradient-to-br from-[#0ef9b4] via-[#0dd9a0] to-[#0ef9b4] overflow-hidden">
+        <div className="relative w-full h-48 sm:h-56 md:h-64 dots-gradient-hero overflow-hidden">
           {user?.cover_image_url ? (
             <Image
               src={user.cover_image_url ?? undefined}
@@ -563,7 +563,7 @@ function ProfilePageContent() {
               priority
             />
           ) : (
-            <div className="w-full h-full bg-gradient-to-br from-[#0ef9b4] via-[#0dd9a0] to-[#0ef9b4]" />
+            <div className="w-full h-full dots-gradient-hero" />
           )}
           {/* Edit Cover Button - only when on edit tab */}
           {user && activeTab === 'edit' && (
@@ -637,7 +637,10 @@ function ProfilePageContent() {
               {isViewingOtherUser && currentUser && (
                 <div className="flex-shrink-0">
                   {buddyStatus === 'loading' ? (
-                    <div className="px-5 py-2 bg-gray-100 rounded-lg text-gray-600 text-sm">Loading...</div>
+                    <div className="px-5 py-2 bg-gray-100 rounded-lg text-gray-600 text-sm flex items-center gap-2">
+                      <div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" aria-hidden />
+                      Loading...
+                    </div>
                   ) : buddyStatus === 'none' ? (
                     <button
                       onClick={handleConnect}
@@ -1052,7 +1055,10 @@ function ProfilePageContent() {
                     ))}
                   </div>
                 ) : (
-                  <div className="p-4 text-center text-gray-500">Loading sports...</div>
+                  <div className="p-4 flex flex-col items-center justify-center gap-2 text-gray-500">
+                  <div className="w-8 h-8 border-2 border-gray-300 border-t-[#0ef9b4] rounded-full animate-spin" aria-hidden />
+                  <span className="text-sm">Loading sports...</span>
+                </div>
                 )}
               </div>
               <p className="mt-2 text-xs text-gray-500">
@@ -1094,7 +1100,10 @@ function ProfilePageContent() {
                   </div>
                 </div>
               ) : (
-                <div className="p-4 text-center text-gray-500">Loading goals...</div>
+                <div className="p-4 flex flex-col items-center justify-center gap-2 text-gray-500">
+                <div className="w-8 h-8 border-2 border-gray-300 border-t-[#0ef9b4] rounded-full animate-spin" aria-hidden />
+                <span className="text-sm">Loading goals...</span>
+              </div>
               )}
             </div>
 

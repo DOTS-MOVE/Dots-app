@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Logo from '@/components/Logo';
+import LoadingScreen from '@/components/LoadingScreen';
 
 function LoginPageContent() {
   const [email, setEmail] = useState('');
@@ -140,7 +141,7 @@ export default function LoginPage() {
             <Logo size="large" />
             <p className="text-gray-700 text-sm font-medium">Meet. Move. Motivate.</p>
           </div>
-          <div className="text-center text-gray-500">Loading...</div>
+          <LoadingScreen message="Loading..." />
         </div>
       </div>
     }>

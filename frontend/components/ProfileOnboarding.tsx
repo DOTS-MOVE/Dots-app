@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import LoadingScreen from '@/components/LoadingScreen';
 import { Sport, Goal, UserPhoto } from '@/types';
 import Image from 'next/image';
 import { uploadProfileImage } from '@/lib/storage';
@@ -397,10 +398,7 @@ export default function ProfileOnboarding({ onComplete }: ProfileOnboardingProps
     return (
       <div className="fixed inset-0 z-50 bg-white overflow-y-auto">
         <div className="min-h-screen flex items-center justify-center p-4">
-          <div className="text-center">
-            <div className="w-16 h-16 border-4 border-[#0ef9b4] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading your profile...</p>
-          </div>
+          <LoadingScreen message="Loading your profile..." />
         </div>
       </div>
     );

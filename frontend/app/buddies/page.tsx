@@ -12,6 +12,7 @@ import BuddyGrid from '@/components/BuddyGrid';
 import ConnectionMessageModal from '@/components/ConnectionMessageModal';
 import ProfileAvatar from '@/components/ProfileAvatar';
 import { BuddiesSkeleton } from '@/components/SkeletonLoader';
+import LoadingScreen from '@/components/LoadingScreen';
 import { useBuddies } from '@/lib/hooks';
 import { api } from '@/lib/api';
 import { Buddy } from '@/types';
@@ -195,7 +196,19 @@ function BuddiesPageContent() {
   return (
     <div className="min-h-screen bg-gray-50 pb-20 md:pb-0">
       <Navbar />
-      
+
+      {/* Hero */}
+      <div className="dots-gradient-hero pt-10 pb-12">
+        <div className="max-w-4xl mx-auto px-4 text-center">
+          <h1 className="text-3xl md:text-4xl font-bold text-white mb-2 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            Find Your Buddy
+          </h1>
+          <p className="text-white/85 text-base animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150">
+            Discover people who share your sports and goals
+          </p>
+        </div>
+      </div>
+
       {/* Error Banner */}
       {loadError && !discoveryDisabled && (
         <div className="max-w-4xl mx-auto px-4 pt-4">
@@ -244,7 +257,7 @@ function BuddiesPageContent() {
           >
             Pending
             {buddies.filter(m => m.status === 'pending' && m.user2_id === user?.id).length > 0 && (
-              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+              <span className="absolute -top-2 -right-2 bg-[#0ef9b4] text-black text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
                 {buddies.filter(m => m.status === 'pending' && m.user2_id === user?.id).length}
               </span>
             )}
@@ -274,8 +287,8 @@ function BuddiesPageContent() {
       {activeTab === 'discover' && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           {isSuggestedLoading && suggested.length === 0 ? (
-            <div className="text-center py-16 bg-white rounded-3xl shadow-lg">
-              <div className="text-gray-600">Loading buddies...</div>
+            <div className="flex items-center justify-center py-20">
+              <LoadingScreen message="Finding buddies..." />
             </div>
           ) : suggested.length === 0 ? (
             <div className="text-center py-16 bg-white rounded-3xl shadow-lg px-6">
