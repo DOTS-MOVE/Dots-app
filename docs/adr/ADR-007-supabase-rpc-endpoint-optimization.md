@@ -54,6 +54,7 @@ Reasons:
 
 ### Related ADRs
 - `docs/adr/ADR-001-sqlalchemy-only-persistence-layer.md` — long-term target architecture; this ADR is a performance implementation that should be revisited during the SQLAlchemy migration.
+- `docs/adr/ADR-008-rpc-search-path-hardening.md` — security and determinism hardening for RPC functions, especially search_path control.
 
 ## Required schema updates
 1. New enum and indexes for performance on relevant join/filter columns.
