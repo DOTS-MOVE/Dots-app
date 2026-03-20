@@ -14,10 +14,18 @@ import ProfileAvatar from '@/components/ProfileAvatar';
 import EventManagementMenu from '@/components/EventManagementMenu';
 import { ProfileHeaderSkeleton, PostSkeleton, EventSkeleton, FormSkeleton } from '@/components/SkeletonLoader';
 import ConnectionMessageModal from '@/components/ConnectionMessageModal';
+import AppNoticeModal from '@/components/AppNoticeModal';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Buddy } from '@/types';
 import { uploadProfileImage } from '@/lib/storage';
+import { profileFieldHints } from '@/lib/profileFieldHints';
+
+const DELETE_ACCOUNT_PHRASE = 'DELETE MY ACCOUNT';
+
+function imgUnoptimized(src: string | undefined | null) {
+  return !!src && (src.startsWith('data:') || src.startsWith('blob:'));
+}
 
 type Tab = 'posts' | 'events' | 'edit';
 
@@ -59,6 +67,15 @@ function ProfilePageContent() {
   const [showConnectionModal, setShowConnectionModal] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [eventsLoadError, setEventsLoadError] = useState<string | null>(null);
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
+  const [deleteAccountPhrase, setDeleteAccountPhrase] = useState('');
+  const [deleteAccountLoading, setDeleteAccountLoading] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{
+    variant: 'success' | 'error' | 'info';
+    title?: string;
+    message: string;
+  } | null>(null);
   const [formData, setFormData] = useState({
     full_name: '',
     age: '',
@@ -162,7 +179,11 @@ function ProfilePageContent() {
       setShowConnectionModal(false);
     } catch (error: any) {
       console.error('Failed to connect:', error);
-      alert(error.message || 'Failed to send connection request');
+      setNotice({
+        variant: 'error',
+        title: 'Couldn’t send request',
+        message: error.message || 'Failed to send connection request',
+      });
     } finally {
       setConnecting(false);
     }
@@ -291,12 +312,12 @@ function ProfilePageContent() {
   const handleImageUpload = (type: 'avatar' | 'cover' | 'photo', file: File, index?: number) => {
     // Validate file type
     if (!file.type.startsWith('image/')) {
-      alert('Please select an image file');
+      setNotice({ variant: 'info', title: 'Invalid file', message: 'Please select an image file.' });
       return;
     }
     // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
-      alert('Image size must be less than 5MB');
+      setNotice({ variant: 'info', title: 'File too large', message: 'Image size must be less than 5MB.' });
       return;
     }
 
@@ -331,7 +352,11 @@ function ProfilePageContent() {
     const remainingSlots = maxPhotos - currentPhotoCount;
 
     if (files.length > remainingSlots) {
-      alert(`You can only add ${remainingSlots} more photo${remainingSlots === 1 ? '' : 's'}. You already have ${currentPhotoCount} photo${currentPhotoCount === 1 ? '' : 's'}.`);
+      setNotice({
+        variant: 'info',
+        title: 'Photo limit',
+        message: `You can only add ${remainingSlots} more photo${remainingSlots === 1 ? '' : 's'}. You already have ${currentPhotoCount} photo${currentPhotoCount === 1 ? '' : 's'}.`,
+      });
       e.target.value = '';
       return;
     }
@@ -354,7 +379,11 @@ function ProfilePageContent() {
     }
 
     if (invalidFiles.length > 0) {
-      alert(`Some files were skipped:\n${invalidFiles.join('\n')}`);
+      setNotice({
+        variant: 'info',
+        title: 'Some files were skipped',
+        message: invalidFiles.join('\n'),
+      });
     }
 
     if (validFiles.length === 0) {
@@ -418,13 +447,13 @@ function ProfilePageContent() {
       const [avatarUrl, coverImageUrl] = await Promise.all([
         avatarFile
           ? uploadProfileImage(avatarFile, 'avatar', userId).catch((err: Error) => {
-              alert(`Failed to upload avatar: ${err.message}`);
+              setNotice({ variant: 'error', title: 'Avatar upload failed', message: err.message });
               throw err;
             })
           : Promise.resolve(formData.avatar_url),
         coverFile
           ? uploadProfileImage(coverFile, 'cover', userId).catch((err: Error) => {
-              alert(`Failed to upload cover image: ${err.message}`);
+              setNotice({ variant: 'error', title: 'Cover upload failed', message: err.message });
               throw err;
             })
           : Promise.resolve(formData.cover_image_url),
@@ -467,11 +496,23 @@ function ProfilePageContent() {
       setCoverFile(null);
       setPhotoFiles([]);
 
+      if (currentUser?.profile_completed !== true) {
+        await api.completeProfile(isDiscoverable);
+      }
+
       await refreshUser();
       setActiveTab('posts');
-      alert('Profile updated successfully!');
+      setNotice({
+        variant: 'success',
+        title: 'Profile saved',
+        message: 'Your changes have been saved.',
+      });
     } catch (error: any) {
-      alert(error.message || 'Failed to update profile');
+      setNotice({
+        variant: 'error',
+        title: 'Couldn’t save profile',
+        message: error?.message || 'Failed to update profile',
+      });
     } finally {
       setSaving(false);
       setUploadingImages(false);
@@ -921,6 +962,14 @@ function ProfilePageContent() {
         {/* Edit Profile Tab */}
         {activeTab === 'edit' && (
           <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-xl p-6 space-y-6">
+            {currentUser && currentUser.profile_completed !== true && (
+              <div className="rounded-xl border border-[#0ef9b4]/40 bg-[#0ef9b4]/10 px-4 py-3 text-sm text-gray-800">
+                <p className="font-semibold text-gray-900">Finish your account setup</p>
+                <p className="mt-1 text-gray-700 leading-relaxed">
+                  Same fields as the setup flow—photos, sports, goals, and discovery. Saving this form also marks your profile complete so you’re not stuck in the welcome screens.
+                </p>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700">Full Name</label>
               <input
@@ -943,6 +992,7 @@ function ProfilePageContent() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700">Location</label>
+              <p className="mt-1 text-xs text-gray-500">{profileFieldHints.location}</p>
               <input
                 type="text"
                 value={formData.location}
@@ -954,6 +1004,7 @@ function ProfilePageContent() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700">Bio</label>
+              <p className="mt-1 text-xs text-gray-500">{profileFieldHints.bio}</p>
               <textarea
                 value={formData.bio}
                 onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
@@ -964,7 +1015,8 @@ function ProfilePageContent() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Profile Picture</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Profile picture</label>
+              <p className="text-xs text-gray-500 mb-2">{profileFieldHints.profilePhoto}</p>
               <div className="flex items-center gap-4">
                 {formData.avatar_url && (
                   <div className="w-20 h-20 rounded-full overflow-hidden border-2 border-gray-200">
@@ -974,6 +1026,7 @@ function ProfilePageContent() {
                       width={80}
                       height={80}
                       className="object-cover w-full h-full"
+                      unoptimized={imgUnoptimized(formData.avatar_url)}
                     />
                   </div>
                 )}
@@ -996,7 +1049,8 @@ function ProfilePageContent() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Cover Image</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Cover image</label>
+              <p className="text-xs text-gray-500 mb-2">{profileFieldHints.coverPhoto}</p>
               <div className="flex items-center gap-4">
                 {formData.cover_image_url && (
                   <div className="w-32 h-20 rounded-lg overflow-hidden border-2 border-gray-200">
@@ -1006,6 +1060,7 @@ function ProfilePageContent() {
                       width={128}
                       height={80}
                       className="object-cover w-full h-full"
+                      unoptimized={imgUnoptimized(formData.cover_image_url)}
                     />
                   </div>
                 )}
@@ -1082,7 +1137,11 @@ function ProfilePageContent() {
                               : [...prev.goal_ids, goal.id];
                             
                             if (newGoalIds.length > 8) {
-                              alert('You can select a maximum of 8 goals.');
+                              setNotice({
+                                variant: 'info',
+                                title: 'Goal limit',
+                                message: 'You can select a maximum of 8 goals.',
+                              });
                               return prev;
                             }
                             return { ...prev, goal_ids: newGoalIds };
@@ -1108,8 +1167,8 @@ function ProfilePageContent() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Profile Photos (up to 4)</label>
-              
+              <label className="block text-sm font-medium text-gray-700 mb-2">Gallery photos (up to 4)</label>
+              <p className="text-xs text-gray-500 mb-2">{profileFieldHints.gallery}</p>
               {/* Multiple photo upload button */}
               {photos.filter(Boolean).length < 4 && (
                 <div className="mb-4">
@@ -1144,7 +1203,13 @@ function ProfilePageContent() {
                   <div key={index} className="aspect-square border-2 border-dashed border-gray-300 rounded-lg overflow-hidden relative">
                     {photos[index] ? (
                       <>
-                        <Image src={photos[index]} alt={`Photo ${index + 1}`} fill className="object-cover" />
+                        <Image
+                          src={photos[index]}
+                          alt={`Photo ${index + 1}`}
+                          fill
+                          className="object-cover"
+                          unoptimized={imgUnoptimized(photos[index])}
+                        />
                         <button
                           type="button"
                           onClick={() => {
@@ -1182,7 +1247,8 @@ function ProfilePageContent() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">Discovery Settings</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Discovery</label>
+              <p className="text-xs text-gray-500 mb-3">{profileFieldHints.discoveryShort}</p>
               <div className="space-y-3">
                 <button
                   type="button"
@@ -1243,10 +1309,106 @@ function ProfilePageContent() {
                 {uploadingImages ? 'Uploading images...' : saving ? 'Saving...' : 'Save Profile'}
               </button>
             </div>
+
+            {!isViewingOtherUser && (
+              <div className="mt-10 pt-8 border-t border-gray-200">
+                <h3 className="text-sm font-semibold text-gray-900">Delete account</h3>
+                <p className="mt-1 text-sm text-gray-600 leading-relaxed">
+                  Permanently delete your profile, posts, buddies, RSVPs, and sign-in. Events you host and group chats you created are removed. This cannot be undone.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteAccountError(null);
+                    setDeleteAccountPhrase('');
+                    setDeleteAccountOpen(true);
+                  }}
+                  className="mt-3 px-4 py-2 text-sm font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl hover:bg-red-100 transition-colors"
+                >
+                  Delete my account…
+                </button>
+              </div>
+            )}
           </form>
+        )}
+
+        {!isViewingOtherUser && deleteAccountOpen && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-account-title"
+          >
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-xl max-w-md w-full p-6 space-y-4">
+              <h2 id="delete-account-title" className="text-lg font-bold text-gray-900">
+                Delete your account?
+              </h2>
+              <p className="text-sm text-gray-600 leading-relaxed">
+                To confirm, type <span className="font-mono font-semibold text-gray-800">{DELETE_ACCOUNT_PHRASE}</span>{' '}
+                below. You will be signed out immediately.
+              </p>
+              <input
+                type="text"
+                value={deleteAccountPhrase}
+                onChange={(e) => {
+                  setDeleteAccountPhrase(e.target.value);
+                  setDeleteAccountError(null);
+                }}
+                className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm font-mono"
+                placeholder={DELETE_ACCOUNT_PHRASE}
+                autoComplete="off"
+                disabled={deleteAccountLoading}
+              />
+              {deleteAccountError && (
+                <p className="text-sm text-red-600">{deleteAccountError}</p>
+              )}
+              <div className="flex flex-col-reverse sm:flex-row gap-2 sm:justify-end pt-2">
+                <button
+                  type="button"
+                  disabled={deleteAccountLoading}
+                  onClick={() => setDeleteAccountOpen(false)}
+                  className="px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    deleteAccountLoading ||
+                    deleteAccountPhrase.trim() !== DELETE_ACCOUNT_PHRASE
+                  }
+                  onClick={async () => {
+                    setDeleteAccountError(null);
+                    setDeleteAccountLoading(true);
+                    try {
+                      await api.deleteMyAccount(deleteAccountPhrase.trim());
+                      await logout();
+                      router.push('/');
+                    } catch (e: unknown) {
+                      const msg = e instanceof Error ? e.message : 'Something went wrong';
+                      setDeleteAccountError(msg);
+                    } finally {
+                      setDeleteAccountLoading(false);
+                    }
+                  }}
+                  className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {deleteAccountLoading ? 'Deleting…' : 'Delete forever'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
       
+      <AppNoticeModal
+        isOpen={notice !== null}
+        onClose={() => setNotice(null)}
+        variant={notice?.variant ?? 'info'}
+        title={notice?.title}
+        message={notice?.message ?? ''}
+      />
+
       {/* Connection Message Modal */}
       {viewingUser && (
         <ConnectionMessageModal

@@ -119,10 +119,21 @@ export default function Navbar() {
               {navLinks.map((link) => {
                 const active = isActive(link.href);
                 const showBadge = link.href === '/messages' && unreadCount > 0;
+                const tour =
+                  link.href === '/'
+                    ? 'tour-nav-home'
+                    : link.href === '/events'
+                      ? 'tour-nav-events'
+                      : link.href === '/buddies'
+                        ? 'tour-nav-buddies'
+                        : link.href === '/messages'
+                          ? 'tour-nav-messages'
+                          : undefined;
                 return (
                   <Link
                     key={link.href}
                     href={link.href}
+                    data-tour={tour}
                     className={`px-4 py-2 rounded-xl text-sm font-medium transition-all relative ${
                       active
                         ? 'bg-[#E6F9F4] text-[#0dd9a0] font-semibold'
@@ -143,6 +154,7 @@ export default function Navbar() {
           <div className="flex items-center space-x-2">
             <Link
               href="/profile"
+              data-tour="tour-nav-profile"
               className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
                 pathname === '/profile'
                   ? 'bg-[#E6F9F4] text-[#0dd9a0] font-semibold'

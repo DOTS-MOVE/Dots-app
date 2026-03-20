@@ -1,12 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from supabase import Client
 from typing import List, Optional
 from core.database import get_supabase
 from api.auth import get_current_user
-from schemas.user import UserResponse, UserUpdate, UserProfile, CompleteProfileRequest
+from schemas.user import UserResponse, UserUpdate, UserProfile, CompleteProfileRequest, DeleteAccountRequest
 from schemas.user_photo import UserPhotoCreate, UserPhotoResponse
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+DELETE_ACCOUNT_CONFIRMATION = "DELETE MY ACCOUNT"
+bearer_required = HTTPBearer()
 
 
 @router.get("/me", response_model=UserProfile)
@@ -382,3 +386,77 @@ async def complete_profile(
     
     # Get updated user with relations
     return await get_current_user_profile(current_user=result.data[0])
+
+
+@router.post("/me/delete-account", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_account(
+    body: DeleteAccountRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_required),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Permanently delete the authenticated user's app profile and Supabase Auth account.
+    Removes events they host and group chats they created first (FK constraints).
+    """
+    if (body.confirmation or "").strip() != DELETE_ACCOUNT_CONFIRMATION:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f'Type exactly "{DELETE_ACCOUNT_CONFIRMATION}" to confirm.',
+        )
+
+    token_str = credentials.credentials
+    user_id = current_user.get("id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User ID not found",
+        )
+
+    try:
+        supabase: Client = get_supabase()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Supabase connection error: {str(e)}",
+        )
+
+    try:
+        auth_resp = supabase.auth.get_user(token_str)
+        if not auth_resp or not auth_resp.user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid session",
+            )
+        auth_uuid = str(auth_resp.user.id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Could not verify session: {str(e)}",
+        )
+
+    try:
+        # Events hosted by user (host_id has no ON DELETE CASCADE)
+        supabase.table("events").delete().eq("host_id", user_id).execute()
+        # Groups created by user (created_by_id has no ON DELETE CASCADE)
+        supabase.table("group_chats").delete().eq("created_by_id", user_id).execute()
+        # Remaining FKs use ON DELETE CASCADE from public.users
+        supabase.table("users").delete().eq("id", user_id).execute()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete account data: {str(e)}",
+        )
+
+    try:
+        supabase.auth.admin.delete_user(auth_uuid)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Profile was removed but sign-in could not be deleted. Contact support. Error: {str(e)}",
+        )
+
+    return None
