@@ -4,14 +4,22 @@ import { useMemo, useState } from 'react';
 import Navbar from '@/components/Navbar';
 import BottomNav from '@/components/BottomNav';
 import EventCardLarge from '@/components/EventCardLarge';
+import EventDateStrip from '@/components/EventDateStrip';
+import EventRowCompact from '@/components/EventRowCompact';
 import EventsCalendar from '@/components/EventsCalendar';
+import EventsWeekView from '@/components/EventsWeekView';
 import SearchBar from '@/components/SearchBar';
 import FilterChips from '@/components/FilterChips';
 import LoadingScreen from '@/components/LoadingScreen';
 import { CalendarDaysIcon } from '@/components/Icons';
 import { useEvents, useSports } from '@/lib/hooks';
-import { Event } from '@/types';
+import { dateKeyLocal, groupEventsByLocalDate } from '@/lib/date-keys';
 import Link from 'next/link';
+
+function startOfToday() {
+  const t = new Date();
+  return new Date(t.getFullYear(), t.getMonth(), t.getDate());
+}
 
 export default function EventsPage() {
   const { events: eventsData, isLoading: eventsLoading } = useEvents();
@@ -19,6 +27,8 @@ export default function EventsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSport, setSelectedSport] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
+  const [calendarSelectedDate, setCalendarSelectedDate] = useState(startOfToday);
+  const [webCalendarScope, setWebCalendarScope] = useState<'month' | 'week'>('month');
 
   const loading = eventsLoading || sportsLoading;
 
@@ -60,6 +70,12 @@ export default function EventsPage() {
       .filter(e => new Date(e.start_time) < now)
       .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime());
   }, [events]);
+
+  const eventsByLocalDate = useMemo(() => groupEventsByLocalDate(events), [events]);
+  const calendarDayEvents = useMemo(() => {
+    const key = dateKeyLocal(calendarSelectedDate);
+    return eventsByLocalDate[key] ?? [];
+  }, [eventsByLocalDate, calendarSelectedDate]);
 
   if (loading) {
     return (
@@ -183,8 +199,87 @@ export default function EventsPage() {
             </Link>
           </div>
         ) : viewMode === 'calendar' ? (
-          <div className="animate-in fade-in duration-500">
-            <EventsCalendar events={events} />
+          <div className="animate-in fade-in duration-500 space-y-4">
+            <div className="md:hidden space-y-4">
+              <EventDateStrip
+                selectedDate={calendarSelectedDate}
+                onSelectDate={setCalendarSelectedDate}
+              />
+              <div className="flex items-center justify-between bg-white rounded-xl border border-gray-200 px-4 py-3">
+                <div>
+                  <p className="text-sm font-bold text-gray-900">All</p>
+                  <p className="text-xs text-gray-500">
+                    {calendarDayEvents.length}{' '}
+                    {calendarDayEvents.length === 1 ? 'event' : 'events'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="p-2 rounded-lg text-gray-500 hover:bg-gray-50"
+                  aria-label="Filter events"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+                    />
+                  </svg>
+                </button>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 px-4">
+                {calendarDayEvents.length === 0 ? (
+                  <p className="py-10 text-center text-gray-500 text-sm">No events on this day.</p>
+                ) : (
+                  calendarDayEvents.map((event) => (
+                    <EventRowCompact key={event.id} event={event} />
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="hidden md:block space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3">
+                <div className="flex items-center justify-center bg-white rounded-xl p-1 shadow-md border border-gray-200 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    onClick={() => setWebCalendarScope('month')}
+                    className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-300 flex-1 sm:flex-none ${
+                      webCalendarScope === 'month'
+                        ? 'bg-[#0ef9b4] text-black shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWebCalendarScope('week')}
+                    className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-300 flex-1 sm:flex-none ${
+                      webCalendarScope === 'week'
+                        ? 'bg-[#0ef9b4] text-black shadow-sm'
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Week
+                  </button>
+                </div>
+              </div>
+              {webCalendarScope === 'month' ? (
+                <EventsCalendar
+                  events={events}
+                  highlightDate={calendarSelectedDate}
+                  onDateSelect={(d) =>
+                    setCalendarSelectedDate(
+                      new Date(d.getFullYear(), d.getMonth(), d.getDate())
+                    )
+                  }
+                />
+              ) : (
+                <EventsWeekView events={events} weekAnchorDate={calendarSelectedDate} />
+              )}
+            </div>
           </div>
         ) : (
           <>
