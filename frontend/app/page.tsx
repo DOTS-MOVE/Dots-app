@@ -156,7 +156,7 @@ export default function Home() {
                   <h3 className="font-bold text-gray-900 text-lg mb-2">Complete your profile</h3>
                   <p className="text-sm text-gray-700 mb-4">For recommendations, messaging and more!</p>
                   <Link
-                    href="/profile"
+                    href="/profile?tab=edit"
                     className="inline-block bg-[#0ef9b4] text-black px-5 py-2.5 rounded-xl font-medium text-sm hover:bg-[#0dd9a0] transition-all duration-300 shadow-sm hover:shadow-md"
                   >
                     Complete Profile

@@ -103,12 +103,25 @@ export default function BottomNav() {
       <div className="flex justify-around items-center h-16 pb-safe">
         {navItems.map((item) => {
           const active = isActive(item.href);
+          const tour =
+            item.href === '/'
+              ? 'tour-nav-home'
+              : item.href === '/events'
+                ? 'tour-nav-events'
+                : item.href === '/buddies'
+                  ? 'tour-nav-buddies'
+                  : item.href === '/messages'
+                    ? 'tour-nav-messages'
+                    : item.href === '/profile'
+                      ? 'tour-nav-profile'
+                      : undefined;
           return (
             <Link
               key={item.href}
               href={item.href}
               prefetch={true}
               aria-label={item.label}
+              {...(tour ? { 'data-tour': tour } : {})}
               className={`flex flex-col items-center justify-center flex-1 h-full gap-1 transition-all duration-200 ${
                 active ? 'text-[#0dd9a0]' : 'text-gray-400 hover:text-gray-600'
               }`}

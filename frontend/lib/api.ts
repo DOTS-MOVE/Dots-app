@@ -500,6 +500,53 @@ export class ApiClient {
     }
   }
 
+  /** Permanently delete the signed-in user's profile and auth account. */
+  async deleteMyAccount(confirmation: string): Promise<void> {
+    const token = await this.getToken();
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    try {
+      const response = await fetch(`${this.baseUrl}/users/me/delete-account`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ confirmation }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let message = 'Failed to delete account';
+        try {
+          const err = JSON.parse(errorText);
+          message = err.detail || err.message || message;
+        } catch {
+          if (errorText) message = errorText;
+        }
+        throw new Error(typeof message === 'string' ? message : 'Failed to delete account');
+      }
+    } catch (error: unknown) {
+      clearTimeout(timeoutId);
+      const err = error as { name?: string; message?: string };
+      if (err.name === 'AbortError') {
+        throw new Error('Request timed out. Please try again.');
+      }
+      if (err.message === 'Failed to fetch' || err.message?.includes('fetch')) {
+        throw new Error('Unable to connect to the server. Please check your connection.');
+      }
+      throw error;
+    }
+  }
+
   // Events - Promise.race for timeout (no AbortController)
   async getEvents(params?: { sport_id?: number; location?: string; search?: string }): Promise<Event[]> {
     const queryParams = new URLSearchParams();

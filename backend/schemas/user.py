@@ -49,3 +49,8 @@ class UserProfile(UserResponse):
 class CompleteProfileRequest(BaseModel):
     is_discoverable: bool
 
+
+class DeleteAccountRequest(BaseModel):
+    """Must match exactly (case-sensitive) to confirm irreversible deletion."""
+    confirmation: str
+
