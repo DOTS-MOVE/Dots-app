@@ -1,0 +1,184 @@
+# Deploy FastAPI backend to Google Cloud Run.
+#
+# Best practices this workflow follows:
+# - Declarative steps in YAML (audit trail, no hidden script path in CI).
+# - Immutable image tags (Git SHA) for traceability and rollback.
+# - cloudbuild.yaml as single source of truth for how the image is built.
+# - No gcloud services enable on every run (bootstrap APIs once; see below).
+#
+# Cost: `gcloud builds submit` always runs the build on Cloud Build (same as
+# one-command submit with --tag). You pay for build minutes and image storage
+# in GCR, not for “adding” Cloud Build as an extra product here.
+#
+# One-time GCP bootstrap (run once per project or in Terraform):
+#   gcloud services enable cloudresourcemanager.googleapis.com \
+#     cloudbuild.googleapis.com run.googleapis.com \
+#     containerregistry.googleapis.com artifactregistry.googleapis.com \
+#     --project=YOUR_PROJECT
+#   (Artifact Registry API is required for Cloud Run to pull many gcr.io images.)
+#
+# GitHub secrets:
+# - GCP_SA_KEY — JSON key for the deploy service account.
+# - GCP_PROJECT_ID — optional; defaults to dots-490015 when unset/empty.
+#
+# IAM (deploy SA): cloudbuild.builds.editor, run.admin, storage for
+# gs://PROJECT_cloudbuild, iam.serviceAccountUser on Compute default SA as needed.
+# roles/artifactregistry.reader on the project (or repo) so `gcloud run deploy` can
+# resolve/pull the image (downloadArtifacts). Image push still uses Cloud Build’s SA.
+#
+# Log streaming: `gcloud builds submit` (without --async) streams logs from the default
+# bucket; Google requires project Viewer/Owner for that — roles/logging.viewer is often
+# not enough. This workflow uses --async + describe polls so CI does not need Viewer.
+# To stream logs in a terminal instead, grant roles/viewer or run builds from an account
+# that already has it.
+#
+# Branches:
+#   main  → Cloud Run dots-backend
+#   dev   → Cloud Run dots-backend-dev
+
+name: Deploy backend (Cloud Run)
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-backend.yml"
+
+concurrency:
+  group: deploy-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GCP_REGION: us-central1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Map branch → Cloud Run target
+        id: target
+        run: |
+          case "${GITHUB_REF}" in
+            refs/heads/main)
+              echo "service=dots-backend" >> "$GITHUB_OUTPUT"
+              echo "debug=False" >> "$GITHUB_OUTPUT"
+              echo "Branch main → Cloud Run dots-backend"
+              ;;
+            refs/heads/dev)
+              echo "service=dots-backend-dev" >> "$GITHUB_OUTPUT"
+              echo "debug=True" >> "$GITHUB_OUTPUT"
+              echo "Branch ${GITHUB_REF#refs/heads/} → Cloud Run dots-backend-dev"
+              ;;
+            *)
+              echo "Unexpected ref: ${GITHUB_REF}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Resolve GCP project
+        id: project
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          if [ -z "${GCP_PROJECT_ID:-}" ]; then
+            PROJECT_ID=dots-490015
+          else
+            PROJECT_ID="${GCP_PROJECT_ID}"
+          fi
+          echo "project_id=${PROJECT_ID}" >> "$GITHUB_OUTPUT"
+          echo "GCP_PROJECT_ID=${PROJECT_ID}" >> "$GITHUB_ENV"
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build image (Cloud Build)
+        id: build
+        env:
+          SERVICE_NAME: ${{ steps.target.outputs.service }}
+        run: |
+          IMAGE="gcr.io/${GCP_PROJECT_ID}/${SERVICE_NAME}:${GITHUB_SHA}"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          gcloud config set project "${GCP_PROJECT_ID}" --quiet
+
+          BUILD_ID=$(gcloud builds submit "${{ github.workspace }}/backend" \
+            --config="${{ github.workspace }}/backend/cloudbuild.yaml" \
+            --substitutions=_IMAGE="${IMAGE}" \
+            --async \
+            --format='value(id)' \
+            --quiet)
+          echo "Cloud Build ID: ${BUILD_ID}"
+          CONSOLE_URL="https://console.cloud.google.com/cloud-build/builds/${BUILD_ID}?project=${GCP_PROJECT_ID}"
+
+          # Poll until done (matches ~15m Cloud Build timeout in cloudbuild.yaml + margin).
+          for _ in $(seq 1 200); do
+            STATUS=$(gcloud builds describe "${BUILD_ID}" --format='value(status)' --quiet)
+            echo "Cloud Build: ${STATUS}"
+            case "${STATUS}" in
+              SUCCESS) break ;;
+              FAILURE|CANCELLED|TIMEOUT|INTERNAL_ERROR|EXPIRED)
+                echo "::error::Cloud Build failed (${STATUS}). Logs: ${CONSOLE_URL}"
+                exit 1
+                ;;
+              *) sleep 5 ;;
+            esac
+          done
+          FINAL=$(gcloud builds describe "${BUILD_ID}" --format='value(status)' --quiet)
+          if [ "${FINAL}" != "SUCCESS" ]; then
+            echo "::error::Cloud Build did not finish successfully (${FINAL}). Logs: ${CONSOLE_URL}"
+            exit 1
+          fi
+
+          {
+            echo "### Deploy"
+            echo ""
+            echo "- **Image**: \`${IMAGE}\`"
+            echo "- **Service**: \`${SERVICE_NAME}\`"
+            echo "- **Build logs**: [Cloud Console](${CONSOLE_URL})"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Deploy to Cloud Run
+        env:
+          SERVICE_NAME: ${{ steps.target.outputs.service }}
+          DEBUG_FLAG: ${{ steps.target.outputs.debug }}
+          IMAGE: ${{ steps.build.outputs.image }}
+        run: |
+          gcloud run deploy "${SERVICE_NAME}" \
+            --image "${IMAGE}" \
+            --platform managed \
+            --region "${GCP_REGION}" \
+            --allow-unauthenticated \
+            --memory 512Mi \
+            --cpu 1 \
+            --timeout 300 \
+            --max-instances 10 \
+            --update-env-vars "DEBUG=${DEBUG_FLAG}" \
+            --quiet
+
+      - name: Allow unauthenticated invoke (idempotent)
+        env:
+          SERVICE_NAME: ${{ steps.target.outputs.service }}
+        run: |
+          gcloud run services add-iam-policy-binding "${SERVICE_NAME}" \
+            --region "${GCP_REGION}" \
+            --member=allUsers \
+            --role=roles/run.invoker \
+            --quiet 2>/dev/null || true
+
+      - name: Service URL
+        id: service_url
+        env:
+          SERVICE_NAME: ${{ steps.target.outputs.service }}
+        run: |
+          URL=$(gcloud run services describe "${SERVICE_NAME}" \
+            --region "${GCP_REGION}" --format 'value(status.url)')
+          echo "url=${URL}" >> "${GITHUB_OUTPUT}"
+          echo "**Service URL:** ${URL}" >> "${GITHUB_STEP_SUMMARY}"
