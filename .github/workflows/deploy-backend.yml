@@ -13,8 +13,9 @@
 # One-time GCP bootstrap (run once per project or in Terraform):
 #   gcloud services enable cloudresourcemanager.googleapis.com \
 #     cloudbuild.googleapis.com run.googleapis.com \
-#     containerregistry.googleapis.com --project=YOUR_PROJECT
-#   (Cloud Resource Manager avoids gcloud project warnings; required for some APIs.)
+#     containerregistry.googleapis.com artifactregistry.googleapis.com \
+#     --project=YOUR_PROJECT
+#   (Artifact Registry API is required for Cloud Run to pull many gcr.io images.)
 #
 # GitHub secrets:
 # - GCP_SA_KEY — JSON key for the deploy service account.
@@ -22,7 +23,8 @@
 #
 # IAM (deploy SA): cloudbuild.builds.editor, run.admin, storage for
 # gs://PROJECT_cloudbuild, iam.serviceAccountUser on Compute default SA as needed.
-# Image push uses Cloud Build’s managed SA (GCR bucket).
+# roles/artifactregistry.reader on the project (or repo) so `gcloud run deploy` can
+# resolve/pull the image (downloadArtifacts). Image push still uses Cloud Build’s SA.
 #
 # Log streaming: `gcloud builds submit` (without --async) streams logs from the default
 # bucket; Google requires project Viewer/Owner for that — roles/logging.viewer is often
