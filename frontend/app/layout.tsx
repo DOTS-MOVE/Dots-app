@@ -5,6 +5,7 @@ import { AuthProvider } from "@/lib/auth";
 import BetaBanner from "@/components/BetaBanner";
 import ProfileOnboardingWrapper from "@/components/ProfileOnboardingWrapper";
 import SuppressAbortErrors from "@/components/SuppressAbortErrors";
+import { Analytics } from "@vercel/analytics/next";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -61,6 +62,7 @@ export default function RootLayout({
             {children}
           </ProfileOnboardingWrapper>
         </AuthProvider>
+        <Analytics />
       </body>
     </html>
   );
