@@ -11,16 +11,24 @@
 # in GCR, not for “adding” Cloud Build as an extra product here.
 #
 # One-time GCP bootstrap (run once per project or in Terraform):
-#   gcloud services enable cloudbuild.googleapis.com run.googleapis.com \
+#   gcloud services enable cloudresourcemanager.googleapis.com \
+#     cloudbuild.googleapis.com run.googleapis.com \
 #     containerregistry.googleapis.com --project=YOUR_PROJECT
+#   (Cloud Resource Manager avoids gcloud project warnings; required for some APIs.)
 #
 # GitHub secrets:
 # - GCP_SA_KEY — JSON key for the deploy service account.
 # - GCP_PROJECT_ID — optional; defaults to dots-490015 when unset/empty.
 #
-# IAM: deploy identity — cloudbuild.builds.editor, run.admin, storage for
-# gs://PROJECT_cloudbuild, often iam.serviceAccountUser on Compute default SA.
-# Image push uses Cloud Build’s managed SA onto the GCR bucket — fix 403s there if needed.
+# IAM (deploy SA): cloudbuild.builds.editor, run.admin, storage for
+# gs://PROJECT_cloudbuild, iam.serviceAccountUser on Compute default SA as needed.
+# Image push uses Cloud Build’s managed SA (GCR bucket).
+#
+# Log streaming: `gcloud builds submit` (without --async) streams logs from the default
+# bucket; Google requires project Viewer/Owner for that — roles/logging.viewer is often
+# not enough. This workflow uses --async + describe polls so CI does not need Viewer.
+# To stream logs in a terminal instead, grant roles/viewer or run builds from an account
+# that already has it.
 #
 # Branches:
 #   main  → Cloud Run dots-backend
@@ -98,15 +106,41 @@ jobs:
           IMAGE="gcr.io/${GCP_PROJECT_ID}/${SERVICE_NAME}:${GITHUB_SHA}"
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
           gcloud config set project "${GCP_PROJECT_ID}" --quiet
-          gcloud builds submit "${{ github.workspace }}/backend" \
+
+          BUILD_ID=$(gcloud builds submit "${{ github.workspace }}/backend" \
             --config="${{ github.workspace }}/backend/cloudbuild.yaml" \
             --substitutions=_IMAGE="${IMAGE}" \
-            --quiet
+            --async \
+            --format='value(id)' \
+            --quiet)
+          echo "Cloud Build ID: ${BUILD_ID}"
+          CONSOLE_URL="https://console.cloud.google.com/cloud-build/builds/${BUILD_ID}?project=${GCP_PROJECT_ID}"
+
+          # Poll until done (matches ~15m Cloud Build timeout in cloudbuild.yaml + margin).
+          for _ in $(seq 1 200); do
+            STATUS=$(gcloud builds describe "${BUILD_ID}" --format='value(status)' --quiet)
+            echo "Cloud Build: ${STATUS}"
+            case "${STATUS}" in
+              SUCCESS) break ;;
+              FAILURE|CANCELLED|TIMEOUT|INTERNAL_ERROR|EXPIRED)
+                echo "::error::Cloud Build failed (${STATUS}). Logs: ${CONSOLE_URL}"
+                exit 1
+                ;;
+              *) sleep 5 ;;
+            esac
+          done
+          FINAL=$(gcloud builds describe "${BUILD_ID}" --format='value(status)' --quiet)
+          if [ "${FINAL}" != "SUCCESS" ]; then
+            echo "::error::Cloud Build did not finish successfully (${FINAL}). Logs: ${CONSOLE_URL}"
+            exit 1
+          fi
+
           {
             echo "### Deploy"
             echo ""
             echo "- **Image**: \`${IMAGE}\`"
             echo "- **Service**: \`${SERVICE_NAME}\`"
+            echo "- **Build logs**: [Cloud Console](${CONSOLE_URL})"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Deploy to Cloud Run

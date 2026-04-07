@@ -21,6 +21,7 @@ gcloud config set project "${PROJECT_ID}"
 
 echo "🔧 Enabling required APIs (no prompt; safe to re-run)..."
 gcloud services enable \
+  cloudresourcemanager.googleapis.com \
   cloudbuild.googleapis.com \
   run.googleapis.com \
   containerregistry.googleapis.com \
