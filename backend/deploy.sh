@@ -7,12 +7,19 @@ set -e
 # Default project; override for another GCP account:
 #   GCP_PROJECT_ID=other-project-id ./deploy.sh
 # Or export first: export GCP_PROJECT_ID=other-project-id && ./deploy.sh
-PROJECT_ID=${GCP_PROJECT_ID:-dots-488014}
+PROJECT_ID=${GCP_PROJECT_ID:-dots-490015}
 SERVICE_NAME=dots-backend
 REGION=${GCP_REGION:-us-central1}
 
 # Use the target project for this deploy
 gcloud config set project "${PROJECT_ID}"
+
+echo "🔧 Enabling required APIs (no prompt; safe to re-run)..."
+gcloud services enable \
+  cloudbuild.googleapis.com \
+  run.googleapis.com \
+  containerregistry.googleapis.com \
+  --quiet
 
 echo "🚀 Building Docker image..."
 gcloud builds submit --tag gcr.io/${PROJECT_ID}/${SERVICE_NAME}

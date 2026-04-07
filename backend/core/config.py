@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from typing import List
+from typing import List, Optional
 
 
 class Settings(BaseSettings):
@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
-    # CORS - Allow localhost for dev and production domains
+    # CORS — localhost + dotsmove; all Vercel deploys via CORS_ORIGIN_REGEX
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
         "http://localhost:3001",
@@ -25,7 +25,9 @@ class Settings(BaseSettings):
         "https://dotsmove.com",
         "https://www.dotsmove.com",
     ]
-    
+    # Production/preview hosts like https://your-app.vercel.app (set "" to disable)
+    CORS_ORIGIN_REGEX: Optional[str] = r"https://.*\.vercel\.app"
+
     # App
     DEBUG: bool = True
     AUTO_APPROVE_RSVPS: bool = False

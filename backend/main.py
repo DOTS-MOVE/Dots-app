@@ -162,10 +162,17 @@ async def request_telemetry_middleware(request: Request, call_next):
         _trace_request(request, duration_ms, response.status_code, sample_roll, request_id)
     return response
 
-# CORS middleware - Allow all origins in debug mode for development
+# CORS — DEBUG=* ; production uses CORS_ORIGINS + optional CORS_ORIGIN_REGEX (Vercel)
+_cors_allow_origin_regex = None
+if not settings.DEBUG:
+    _pat = (settings.CORS_ORIGIN_REGEX or "").strip()
+    if _pat:
+        _cors_allow_origin_regex = _pat
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.DEBUG else settings.CORS_ORIGINS,  # Allow all in debug mode
+    allow_origins=["*"] if settings.DEBUG else settings.CORS_ORIGINS,
+    allow_origin_regex=_cors_allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
