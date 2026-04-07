@@ -24,13 +24,13 @@
 #
 # Branches:
 #   main    → Cloud Run dots-backend
-#   backend → Cloud Run dots-backend-dev
+#   dev → Cloud Run dots-backend-dev
 
 name: Deploy backend (Cloud Run)
 
 on:
   push:
-    branches: [main, backend]
+    branches: [main, dev]
     paths:
       - "backend/**"
       - ".github/workflows/deploy-backend.yml"
