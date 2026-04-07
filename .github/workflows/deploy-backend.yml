@@ -1,0 +1,148 @@
+# Deploy FastAPI backend to Google Cloud Run.
+#
+# Best practices this workflow follows:
+# - Declarative steps in YAML (audit trail, no hidden script path in CI).
+# - Immutable image tags (Git SHA) for traceability and rollback.
+# - cloudbuild.yaml as single source of truth for how the image is built.
+# - No gcloud services enable on every run (bootstrap APIs once; see below).
+#
+# Cost: `gcloud builds submit` always runs the build on Cloud Build (same as
+# one-command submit with --tag). You pay for build minutes and image storage
+# in GCR, not for “adding” Cloud Build as an extra product here.
+#
+# One-time GCP bootstrap (run once per project or in Terraform):
+#   gcloud services enable cloudbuild.googleapis.com run.googleapis.com \
+#     containerregistry.googleapis.com --project=YOUR_PROJECT
+#
+# GitHub secrets:
+# - GCP_SA_KEY — JSON key for the deploy service account.
+# - GCP_PROJECT_ID — optional; defaults to dots-490015 when unset/empty.
+#
+# IAM: deploy identity — cloudbuild.builds.editor, run.admin, storage for
+# gs://PROJECT_cloudbuild, often iam.serviceAccountUser on Compute default SA.
+# Image push uses Cloud Build’s managed SA onto the GCR bucket — fix 403s there if needed.
+#
+# Branches:
+#   main    → Cloud Run dots-backend
+#   backend → Cloud Run dots-backend-dev
+
+name: Deploy backend (Cloud Run)
+
+on:
+  push:
+    branches: [main, backend]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-backend.yml"
+
+concurrency:
+  group: deploy-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GCP_REGION: us-central1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Map branch → Cloud Run target
+        id: target
+        run: |
+          case "${GITHUB_REF}" in
+            refs/heads/main)
+              echo "service=dots-backend" >> "$GITHUB_OUTPUT"
+              echo "debug=False" >> "$GITHUB_OUTPUT"
+              echo "Branch main → Cloud Run dots-backend"
+              ;;
+            refs/heads/backend)
+              echo "service=dots-backend-dev" >> "$GITHUB_OUTPUT"
+              echo "debug=True" >> "$GITHUB_OUTPUT"
+              echo "Branch backend → Cloud Run dots-backend-dev"
+              ;;
+            *)
+              echo "Unexpected ref: ${GITHUB_REF}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Resolve GCP project
+        id: project
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          if [ -z "${GCP_PROJECT_ID:-}" ]; then
+            PROJECT_ID=dots-490015
+          else
+            PROJECT_ID="${GCP_PROJECT_ID}"
+          fi
+          echo "project_id=${PROJECT_ID}" >> "$GITHUB_OUTPUT"
+          echo "GCP_PROJECT_ID=${PROJECT_ID}" >> "$GITHUB_ENV"
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build image (Cloud Build)
+        id: build
+        env:
+          SERVICE_NAME: ${{ steps.target.outputs.service }}
+        run: |
+          IMAGE="gcr.io/${GCP_PROJECT_ID}/${SERVICE_NAME}:${GITHUB_SHA}"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          gcloud config set project "${GCP_PROJECT_ID}" --quiet
+          gcloud builds submit "${{ github.workspace }}/backend" \
+            --config="${{ github.workspace }}/backend/cloudbuild.yaml" \
+            --substitutions=_IMAGE="${IMAGE}" \
+            --quiet
+          {
+            echo "### Deploy"
+            echo ""
+            echo "- **Image**: \`${IMAGE}\`"
+            echo "- **Service**: \`${SERVICE_NAME}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Deploy to Cloud Run
+        env:
+          SERVICE_NAME: ${{ steps.target.outputs.service }}
+          DEBUG_FLAG: ${{ steps.target.outputs.debug }}
+          IMAGE: ${{ steps.build.outputs.image }}
+        run: |
+          gcloud run deploy "${SERVICE_NAME}" \
+            --image "${IMAGE}" \
+            --platform managed \
+            --region "${GCP_REGION}" \
+            --allow-unauthenticated \
+            --memory 512Mi \
+            --cpu 1 \
+            --timeout 300 \
+            --max-instances 10 \
+            --update-env-vars "DEBUG=${DEBUG_FLAG}" \
+            --quiet
+
+      - name: Allow unauthenticated invoke (idempotent)
+        env:
+          SERVICE_NAME: ${{ steps.target.outputs.service }}
+        run: |
+          gcloud run services add-iam-policy-binding "${SERVICE_NAME}" \
+            --region "${GCP_REGION}" \
+            --member=allUsers \
+            --role=roles/run.invoker \
+            --quiet 2>/dev/null || true
+
+      - name: Service URL
+        id: service_url
+        env:
+          SERVICE_NAME: ${{ steps.target.outputs.service }}
+        run: |
+          URL=$(gcloud run services describe "${SERVICE_NAME}" \
+            --region "${GCP_REGION}" --format 'value(status.url)')
+          echo "url=${URL}" >> "${GITHUB_OUTPUT}"
+          echo "**Service URL:** ${URL}" >> "${GITHUB_STEP_SUMMARY}"

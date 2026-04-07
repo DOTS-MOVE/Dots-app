@@ -1,0 +1,8 @@
+# Reproducible image build for Cloud Run. Invoked by CI and by deploy.sh locally.
+# Supply substitution _IMAGE (e.g. gcr.io/PROJECT/dots-backend:COMMIT_SHA).
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["build", "-t", "$_IMAGE", "."]
+images:
+  - "$_IMAGE"
+timeout: 900s
