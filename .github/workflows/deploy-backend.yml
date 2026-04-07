@@ -23,8 +23,8 @@
 # Image push uses Cloud Build’s managed SA onto the GCR bucket — fix 403s there if needed.
 #
 # Branches:
-#   main    → Cloud Run dots-backend
-#   dev → Cloud Run dots-backend-dev
+#   main  → Cloud Run dots-backend
+#   dev   → Cloud Run dots-backend-dev
 
 name: Deploy backend (Cloud Run)
 
@@ -60,10 +60,10 @@ jobs:
               echo "debug=False" >> "$GITHUB_OUTPUT"
               echo "Branch main → Cloud Run dots-backend"
               ;;
-            refs/heads/backend)
+            refs/heads/dev)
               echo "service=dots-backend-dev" >> "$GITHUB_OUTPUT"
               echo "debug=True" >> "$GITHUB_OUTPUT"
-              echo "Branch backend → Cloud Run dots-backend-dev"
+              echo "Branch ${GITHUB_REF#refs/heads/} → Cloud Run dots-backend-dev"
               ;;
             *)
               echo "Unexpected ref: ${GITHUB_REF}" >&2
