@@ -2,7 +2,8 @@
 # Deployment commands for Google Cloud Run
 # Run these commands in your terminal
 
-PROJECT_ID=dots
+# Canonical Dots GCP project.
+PROJECT_ID=${GCP_PROJECT_ID:-dots-490015}
 SERVICE_NAME=dots-backend
 REGION=us-central1
 

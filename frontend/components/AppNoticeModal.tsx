@@ -129,7 +129,7 @@ export default function AppNoticeModal({
 
             <h2
               id="app-notice-title"
-              className="text-[1.35rem] font-bold tracking-tight text-slate-900 sm:text-2xl"
+              className="text-xl font-bold tracking-tight text-slate-900 sm:text-[1.3125rem]"
             >
               {heading}
             </h2>

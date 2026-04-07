@@ -177,7 +177,7 @@ export default function SpotlightTour() {
       >
         <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 sm:p-8 shadow-2xl">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#0aa885]">You’re in</p>
-          <h2 id="spotlight-welcome-title" className="mt-2 text-2xl font-bold text-gray-900 tracking-tight">
+          <h2 id="spotlight-welcome-title" className="mt-2 text-xl sm:text-[1.3125rem] font-bold text-gray-900 tracking-tight">
             Welcome to Dots
           </h2>
           <p className="mt-3 text-sm text-gray-600 leading-relaxed">
@@ -215,7 +215,7 @@ export default function SpotlightTour() {
       >
         <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-6 sm:p-8 shadow-2xl my-auto">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#0aa885]">You’re all set</p>
-          <h2 id="spotlight-next-title" className="mt-2 text-2xl font-bold text-gray-900 tracking-tight">
+          <h2 id="spotlight-next-title" className="mt-2 text-xl sm:text-[1.3125rem] font-bold text-gray-900 tracking-tight">
             What do you want to do next?
           </h2>
           <p className="mt-2 text-sm text-gray-600 leading-relaxed">Pick a place to jump in—we’ll take you there.</p>
@@ -270,7 +270,7 @@ export default function SpotlightTour() {
       <p className="text-xs font-semibold uppercase tracking-wide text-[#0aa885]">
         Quick tour · {stepIndex + 1} / {total}
       </p>
-      <h2 id="spotlight-tour-title" className="mt-1 text-lg font-bold text-gray-900">
+      <h2 id="spotlight-tour-title" className="mt-1 text-base font-bold text-gray-900">
         {step.title}
       </h2>
       <p className="mt-2 text-sm text-gray-600 leading-relaxed">{step.body}</p>
