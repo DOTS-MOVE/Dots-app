@@ -13,16 +13,19 @@ import ConnectionMessageModal from '@/components/ConnectionMessageModal';
 import ProfileAvatar from '@/components/ProfileAvatar';
 import { BuddiesSkeleton } from '@/components/SkeletonLoader';
 import LoadingScreen from '@/components/LoadingScreen';
-import { useBuddies } from '@/lib/hooks';
+import { useBuddies, useBuddyEvents } from '@/lib/hooks';
 import { api } from '@/lib/api';
 import { Buddy } from '@/types';
 import Link from 'next/link';
+import Carousel from '@/components/Carousel';
+import EventCardLarge from '@/components/EventCardLarge';
 
 function BuddiesPageContent() {
   const { user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { buddies, isLoading: isBuddiesLoading, error: buddiesError, mutate: mutateBuddies } = useBuddies();
+  const { buddyEvents } = useBuddyEvents();
   const [suggestedExtra, setSuggestedExtra] = useState<any[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<'discover' | 'pending' | 'buddies'>('discover');
@@ -660,6 +663,18 @@ function BuddiesPageContent() {
           )}
         </div>
       )}
+
+      {/* Buddy Events — always visible below all tabs */}
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-in fade-in duration-500">
+          <h2 className="text-xl font-bold text-gray-900 mb-6">Events Your Buddies Are Attending</h2>
+          <Carousel
+            items={buddyEvents}
+            autoScrollInterval={4500}
+            renderItem={(event) => <EventCardLarge event={event} />}
+          />
+        </div>
+
 
       {/* Connection Message Modal */}
       {pendingConnection && (

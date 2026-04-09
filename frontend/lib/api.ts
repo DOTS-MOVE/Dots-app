@@ -1036,6 +1036,21 @@ export class ApiClient {
     }
   }
 
+  async getBuddyEvents(): Promise<Event[]> {
+    const token = await this.getToken();
+    if (!token) return [];
+    try {
+      const response = await Promise.race([
+        fetch(`${this.baseUrl}/buddies/events`, { headers: { 'Authorization': `Bearer ${token}` } }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Request timeout')), 10000)),
+      ]);
+      if (!response.ok) return [];
+      return response.json();
+    } catch {
+      return [];
+    }
+  }
+
   async createBuddy(user2Id: number, message?: string): Promise<Buddy> {
     const token = await this.getToken();
     if (!token) {

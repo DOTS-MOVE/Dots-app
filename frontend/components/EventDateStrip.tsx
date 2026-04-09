@@ -6,9 +6,10 @@ import { dateKeyLocal, startOfWeekSunday } from '@/lib/date-keys';
 interface EventDateStripProps {
   selectedDate: Date;
   onSelectDate: (d: Date) => void;
+  eventDateKeys?: Set<string>;
 }
 
-export default function EventDateStrip({ selectedDate, onSelectDate }: EventDateStripProps) {
+export default function EventDateStrip({ selectedDate, onSelectDate, eventDateKeys }: EventDateStripProps) {
   const selectedRef = useRef<HTMLButtonElement>(null);
   const selectedKey = dateKeyLocal(selectedDate);
 
@@ -40,6 +41,7 @@ export default function EventDateStrip({ selectedDate, onSelectDate }: EventDate
         {days.map((d) => {
           const key = dateKeyLocal(d);
           const isSel = key === selectedKey;
+          const hasEvent = true; // TEMP: force dot on all days for visual testing
           const weekday = d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
 
           return (
@@ -68,6 +70,8 @@ export default function EventDateStrip({ selectedDate, onSelectDate }: EventDate
               </span>
               {isSel ? (
                 <span className="h-1 w-9 bg-gray-900 rounded-full mt-1.5" aria-hidden />
+              ) : hasEvent ? (
+                <span className="h-1.5 w-1.5 bg-[#0ef9b4] rounded-full mt-1.5" aria-hidden />
               ) : (
                 <span className="h-1 w-9 mt-1.5" aria-hidden />
               )}

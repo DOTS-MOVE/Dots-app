@@ -1,10 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Event } from '@/types';
 import ProfileAvatar from './ProfileAvatar';
 import { MapPinIcon, UsersIcon, CalendarIcon } from '@/components/Icons';
+import { useAuth } from '@/lib/auth';
+import { useAuthGate } from '@/lib/authGate';
 
 interface EventCardLargeProps {
   event: Event;
@@ -25,6 +27,25 @@ const DEFAULT_STYLE = { icon: '🏃', gradient: 'from-[#0ef9b4] to-[#0dd9a0]', a
 
 export default function EventCardLarge({ event }: EventCardLargeProps) {
   const [imageError, setImageError] = useState(false);
+  const { user } = useAuth();
+  const { openAuthGate } = useAuthGate();
+  const router = useRouter();
+
+  const handleEventClick = (e: React.MouseEvent) => {
+    if (!user) {
+      e.preventDefault();
+      openAuthGate(`/events/${event.id}`);
+    } else {
+      router.push(`/events/${event.id}`);
+    }
+  };
+
+  const handleHostClick = (e: React.MouseEvent) => {
+    if (!user) {
+      e.preventDefault();
+      openAuthGate(`/events/${event.id}`);
+    }
+  };
 
   const isRenderableImageSrc = (value: string | null | undefined) => {
     if (!value) return false;
@@ -44,7 +65,7 @@ export default function EventCardLarge({ event }: EventCardLargeProps) {
 
   return (
     <div className="group bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col h-full">
-      <Link href={`/events/${event.id}`} className="block flex-1 flex flex-col min-h-0">
+      <div onClick={handleEventClick} className="block flex-1 flex flex-col min-h-0 cursor-pointer">
 
         {/* ── Image / Gradient header ── */}
         <div className="relative h-48 overflow-hidden">
@@ -128,13 +149,13 @@ export default function EventCardLarge({ event }: EventCardLargeProps) {
             <span className="truncate">{event.location}</span>
           </div>
         </div>
-      </Link>
+      </div>
 
       {/* ── Host footer ── */}
       {event.host && (
-        <Link
-          href={`/profile?userId=${event.host.id}`}
-          className="flex items-center gap-3 px-5 py-3.5 border-t border-gray-100 hover:bg-gray-50 transition-colors"
+        <div
+          onClick={handleHostClick}
+          className="flex items-center gap-3 px-5 py-3.5 border-t border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
         >
           <ProfileAvatar
             userId={event.host.id}
@@ -147,7 +168,7 @@ export default function EventCardLarge({ event }: EventCardLargeProps) {
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider leading-none mb-0.5">Hosted by</p>
             <p className="text-sm font-semibold text-gray-800 truncate">{event.host.full_name || 'Unknown'}</p>
           </div>
-        </Link>
+        </div>
       )}
     </div>
   );

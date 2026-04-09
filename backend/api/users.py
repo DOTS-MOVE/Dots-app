@@ -1,3 +1,4 @@
+import random
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from supabase import Client
@@ -49,6 +50,16 @@ async def get_current_user_profile(
             detail="User profile not found"
         )
 
+    # Fetch new fields directly from users table — the RPC was created before these
+    # columns existed so it doesn't return them. Direct query is the reliable source.
+    try:
+        extra_result = supabase.table("users").select(
+            "gender, is_organisation, is_verified, has_disability"
+        ).eq("id", user_id).single().execute()
+        extra = extra_result.data or {}
+    except Exception:
+        extra = {}
+
     return {
         "id": profile_row.get("id"),
         "email": profile_row.get("email"),
@@ -58,6 +69,10 @@ async def get_current_user_profile(
         "location": profile_row.get("location"),
         "avatar_url": profile_row.get("avatar_url"),
         "cover_image_url": profile_row.get("cover_image_url"),
+        "gender": extra.get("gender"),
+        "is_organisation": extra.get("is_organisation") or False,
+        "is_verified": extra.get("is_verified") or False,
+        "has_disability": extra.get("has_disability") or False,
         "is_discoverable": profile_row.get("is_discoverable", False),
         "profile_completed": profile_row.get("profile_completed", False),
         "created_at": profile_row.get("created_at"),
@@ -131,6 +146,48 @@ async def search_users(
             "goals": [{"id": g.get("id"), "name": g.get("name")} for g in goals]
         })
     
+    return result
+
+
+@router.get("/featured", response_model=List[UserProfile])
+async def get_featured_users():
+    """Get featured users in random order"""
+    try:
+        supabase: Client = get_supabase()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Supabase connection error: {str(e)}"
+        )
+
+    try:
+        users_result = supabase.table("users").select("*").eq("is_featured", True).eq("is_active", True).execute()
+        users = users_result.data or []
+    except Exception:
+        return []
+
+    random.shuffle(users)
+
+    result = []
+    for user in users:
+        user_id = user.get("id")
+        sports = []
+        try:
+            sports_result = supabase.table("user_sports").select("sport_id, sports(*)").eq("user_id", user_id).execute()
+            if sports_result.data:
+                for item in sports_result.data:
+                    if item.get("sports"):
+                        sports.append(item["sports"])
+        except Exception:
+            pass
+
+        result.append({
+            **{k: v for k, v in user.items() if k not in ["sports", "goals", "photos"]},
+            "sports": [{"id": s.get("id"), "name": s.get("name"), "icon": s.get("icon")} for s in sports],
+            "goals": [],
+            "photos": [],
+        })
+
     return result
 
 

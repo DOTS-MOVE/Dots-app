@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
+import { AuthGateProvider } from "@/lib/authGate";
 import BetaBanner from "@/components/BetaBanner";
 import ProfileOnboardingWrapper from "@/components/ProfileOnboardingWrapper";
 import SuppressAbortErrors from "@/components/SuppressAbortErrors";
@@ -56,11 +57,13 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-white`}
       >
         <AuthProvider>
-          <SuppressAbortErrors />
-          <ProfileOnboardingWrapper>
-            <BetaBanner />
-            {children}
-          </ProfileOnboardingWrapper>
+          <AuthGateProvider>
+            <SuppressAbortErrors />
+            <ProfileOnboardingWrapper>
+              <BetaBanner />
+              {children}
+            </ProfileOnboardingWrapper>
+          </AuthGateProvider>
         </AuthProvider>
         <Analytics />
       </body>

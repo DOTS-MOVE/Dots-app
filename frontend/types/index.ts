@@ -7,7 +7,12 @@ export interface User {
   location: string | null;
   avatar_url: string | null;
   cover_image_url?: string | null;
+  gender?: string | null;
+  is_organisation?: boolean;
+  is_verified?: boolean;
+  has_disability?: boolean;
   is_discoverable?: boolean;
+  is_featured?: boolean;
   profile_completed?: boolean;
   created_at: string;
   updated_at: string | null;
@@ -40,6 +45,7 @@ export interface Event {
   max_participants: number | null;
   is_cancelled: boolean;
   is_public?: boolean;
+  is_featured?: boolean;
   image_url: string | null;
   cover_image_url?: string | null;
   created_at: string;
