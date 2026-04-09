@@ -11,6 +11,7 @@ import EventsWeekView from '@/components/EventsWeekView';
 import SearchBar from '@/components/SearchBar';
 import FilterChips from '@/components/FilterChips';
 import LoadingScreen from '@/components/LoadingScreen';
+import Carousel from '@/components/Carousel';
 import { CalendarDaysIcon } from '@/components/Icons';
 import { useEvents, useSports } from '@/lib/hooks';
 import { dateKeyLocal, groupEventsByLocalDate } from '@/lib/date-keys';
@@ -64,6 +65,8 @@ export default function EventsPage() {
     return events.filter(e => new Date(e.start_time) >= now);
   }, [events]);
 
+  const featuredEvents = useMemo(() => futureEvents.filter(e => e.is_featured === true), [futureEvents]);
+
   const pastEvents = useMemo(() => {
     const now = new Date();
     return [...events]
@@ -76,6 +79,8 @@ export default function EventsPage() {
     const key = dateKeyLocal(calendarSelectedDate);
     return eventsByLocalDate[key] ?? [];
   }, [eventsByLocalDate, calendarSelectedDate]);
+
+  const eventDateKeys = useMemo(() => new Set(Object.keys(eventsByLocalDate)), [eventsByLocalDate]);
 
   if (loading) {
     return (
@@ -204,6 +209,7 @@ export default function EventsPage() {
               <EventDateStrip
                 selectedDate={calendarSelectedDate}
                 onSelectDate={setCalendarSelectedDate}
+                eventDateKeys={eventDateKeys}
               />
               <div className="flex items-center justify-between bg-white rounded-xl border border-gray-200 px-4 py-3">
                 <div>
@@ -284,7 +290,7 @@ export default function EventsPage() {
         ) : (
           <>
             {(searchQuery.trim() || selectedSport !== null) ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 items-start">
                 {events.map((event, index) => (
                   <div
                     key={event.id}
@@ -297,10 +303,22 @@ export default function EventsPage() {
               </div>
             ) : (
               <>
+                {/* Featured Events Carousel */}
+                {featuredEvents.length > 0 && (
+                  <div className="mb-12 animate-in fade-in duration-500">
+                    <h3 className="text-2xl font-bold text-gray-900 mb-8">Featured Events</h3>
+                    <Carousel
+                      items={featuredEvents}
+                      autoScrollInterval={4500}
+                      renderItem={(event) => <EventCardLarge event={event} />}
+                    />
+                  </div>
+                )}
+
                 {futureEvents.length > 0 && (
                   <div className="mb-16">
                     <h3 className="text-2xl font-bold text-gray-900 mb-6">Upcoming Events</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 items-start">
                       {futureEvents.map((event, index) => (
                         <div
                           key={event.id}
@@ -317,7 +335,7 @@ export default function EventsPage() {
                 {pastEvents.length > 0 && (
                   <div className="mt-8">
                     <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-6">Previous Events</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 items-start">
                       {pastEvents.map((event, index) => (
                         <div
                           key={event.id}

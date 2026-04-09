@@ -1,8 +1,10 @@
 'use client';
 
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Event } from '@/types';
 import { MapPinIcon, UsersIcon } from '@/components/Icons';
+import { useAuth } from '@/lib/auth';
+import { useAuthGate } from '@/lib/authGate';
 
 interface EventCardProps {
   event: Event;
@@ -23,6 +25,17 @@ const DEFAULT_STYLE = { gradient: 'from-[#0ef9b4] to-[#0dd9a0]', accent: 'bg-[#0
 
 export default function EventCard({ event }: EventCardProps) {
   const style = event.sport ? (sportStyles[event.sport.name] ?? DEFAULT_STYLE) : DEFAULT_STYLE;
+  const { user } = useAuth();
+  const { openAuthGate } = useAuthGate();
+  const router = useRouter();
+
+  const handleClick = () => {
+    if (!user) {
+      openAuthGate(`/events/${event.id}`);
+    } else {
+      router.push(`/events/${event.id}`);
+    }
+  };
 
   const date = new Date(event.start_time);
   const dayNum  = date.toLocaleDateString('en-US', { day:   'numeric' });
@@ -31,7 +44,7 @@ export default function EventCard({ event }: EventCardProps) {
   const time    = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
   return (
-    <Link href={`/events/${event.id}`}>
+    <div onClick={handleClick} className="cursor-pointer">
       <div className="group bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 flex items-stretch overflow-hidden">
 
         {/* Left date column */}
@@ -68,6 +81,6 @@ export default function EventCard({ event }: EventCardProps) {
           </div>
         </div>
       </div>
-    </Link>
+    </div>
   );
 }

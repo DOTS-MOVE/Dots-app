@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION public.get_user_profile_bundle(_user_id integer)
- RETURNS TABLE(id integer, email text, full_name text, age integer, bio text, location text, avatar_url text, cover_image_url text, is_discoverable boolean, profile_completed boolean, created_at timestamp with time zone, updated_at timestamp with time zone, sports jsonb, goals jsonb, photos jsonb)
+ RETURNS TABLE(id integer, email text, full_name text, age integer, bio text, location text, avatar_url text, cover_image_url text, gender text, is_organisation boolean, is_verified boolean, has_disability boolean, is_discoverable boolean, profile_completed boolean, created_at timestamp with time zone, updated_at timestamp with time zone, sports jsonb, goals jsonb, photos jsonb)
  LANGUAGE sql
 AS $function$
         SELECT
@@ -11,6 +11,10 @@ AS $function$
             u.location,
             u.avatar_url,
             u.cover_image_url,
+            u.gender,
+            COALESCE(u.is_organisation, false) AS is_organisation,
+            COALESCE(u.is_verified, false) AS is_verified,
+            COALESCE(u.has_disability, false) AS has_disability,
             COALESCE(u.is_discoverable, false) AS is_discoverable,
             COALESCE(u.profile_completed, false) AS profile_completed,
             u.created_at,

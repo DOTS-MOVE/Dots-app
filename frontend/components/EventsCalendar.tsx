@@ -127,7 +127,7 @@ export default function EventsCalendar({
                 }
               }}
               className={`
-                min-h-[60px] p-1 border border-gray-100 rounded-lg cursor-pointer transition-all
+                min-h-[44px] md:min-h-[60px] p-1 border border-gray-100 rounded-lg cursor-pointer transition-all
                 ${isCurrentMonth(date) ? 'bg-white' : 'bg-gray-50'}
                 ${isHighlighted ? 'ring-2 ring-gray-900 ring-offset-1' : ''}
                 ${!isHighlighted && isToday(date) ? 'ring-2 ring-[#0ef9b4]' : ''}
@@ -139,8 +139,23 @@ export default function EventsCalendar({
               >
                 {date.getDate()}
               </div>
+
+              {/* Mobile: dot indicator only */}
               {hasEvents && (
-                <div className="space-y-0.5">
+                <div className="flex justify-center  gap-0.5 md:hidden mt-0.5">
+                  {dayEvents.slice(0, 3).map((_, i) => (
+                    <span
+                      key={i}
+                      className={`block rounded-full ${isCurrentMonth(date) ? 'bg-[#0ef9b4]' : 'bg-[#0ef9b4]/40'}`}
+                      style={{ width: 5, height: 5 }}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {/* Desktop: event title chips */}
+              {hasEvents && (
+                <div className="hidden md:block space-y-0.5">
                   {dayEvents.slice(0, 2).map((event) => (
                     <Link
                       key={event.id}

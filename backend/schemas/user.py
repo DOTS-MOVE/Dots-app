@@ -11,6 +11,10 @@ class UserBase(BaseModel):
     location: Optional[str] = None
     avatar_url: Optional[str] = None
     cover_image_url: Optional[str] = None
+    gender: Optional[str] = None
+    is_organisation: bool = False
+    is_verified: bool = False
+    has_disability: bool = False
 
 
 class UserCreate(UserBase):
@@ -24,6 +28,9 @@ class UserUpdate(BaseModel):
     location: Optional[str] = None
     avatar_url: Optional[str] = None
     cover_image_url: Optional[str] = None
+    gender: Optional[str] = None
+    is_organisation: Optional[bool] = None
+    has_disability: Optional[bool] = None
     sport_ids: Optional[List[int]] = None
     goal_ids: Optional[List[int]] = None
     is_discoverable: Optional[bool] = None
@@ -32,6 +39,7 @@ class UserUpdate(BaseModel):
 class UserResponse(UserBase):
     id: int
     is_discoverable: bool = False
+    is_featured: bool = False
     profile_completed: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None

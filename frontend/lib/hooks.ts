@@ -45,6 +45,17 @@ export function useGoals() {
   return { goals: data ?? [], isLoading, error };
 }
 
+/** Events that the current user's accepted buddies are attending. */
+export function useBuddyEvents() {
+  const { user } = useAuth();
+  const { data, error, isLoading } = useSWR<Event[]>(
+    user ? 'buddy-events' : null,
+    () => api.getBuddyEvents(),
+    { revalidateOnFocus: true, dedupingInterval: 30000 }
+  );
+  return { buddyEvents: data ?? [], isLoading, error };
+}
+
 /** Buddies - cache for tab switching. Only fetches when user is authenticated. */
 export function useBuddies() {
   const { user } = useAuth();
