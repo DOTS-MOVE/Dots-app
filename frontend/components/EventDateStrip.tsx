@@ -41,7 +41,7 @@ export default function EventDateStrip({ selectedDate, onSelectDate, eventDateKe
         {days.map((d) => {
           const key = dateKeyLocal(d);
           const isSel = key === selectedKey;
-          const hasEvent = true; // TEMP: force dot on all days for visual testing
+          const hasEvent = eventDateKeys?.has(key) ?? false;
           const weekday = d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
 
           return (
