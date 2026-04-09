@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from supabase import Client
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from core.database import get_supabase
 from api.auth import get_current_user
 from schemas.buddy import BuddyResponse, BuddyDetail, BuddyRequest, BuddyUpdate
+from schemas.event import EventResponse
 from services.buddying import find_potential_buddies, create_buddy_request, calculate_buddy_score
 
 router = APIRouter(prefix="/buddies", tags=["buddies"])
@@ -464,3 +465,136 @@ async def update_buddy(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update buddy: {str(e)}"
         )
+
+
+@router.get("/events", response_model=List[EventResponse])
+async def get_buddy_events(
+    current_user: dict = Depends(get_current_user)
+):
+    """Return future events that the current user's accepted buddies are attending."""
+    try:
+        supabase: Client = get_supabase()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Supabase connection error: {str(e)}")
+
+    user_id = current_user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="User ID not found")
+
+    # 1. Get accepted buddy IDs
+    try:
+        buddies_result = supabase.rpc("list_buddies_for_user", {"_user_id": user_id}).execute()
+        buddy_rows = buddies_result.data or []
+    except Exception:
+        return []
+
+    buddy_user_ids = []
+    for b in buddy_rows:
+        if b.get("status") != "accepted":
+            continue
+        uid = b["user2_id"] if b["user1_id"] == user_id else b["user1_id"]
+        buddy_user_ids.append(uid)
+
+    if not buddy_user_ids:
+        return []
+
+    # 2. Find future events those buddies have approved RSVPs for
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        rsvps_result = (
+            supabase.table("event_rsvps")
+            .select("event_id, user_id")
+            .in_("user_id", buddy_user_ids)
+            .eq("status", "approved")
+            .execute()
+        )
+        rsvp_rows = rsvps_result.data or []
+    except Exception:
+        return []
+
+    event_ids = list({r["event_id"] for r in rsvp_rows if r.get("event_id")})
+    if not event_ids:
+        return []
+
+    # 3. Fetch those events, filter to future + not cancelled
+    try:
+        events_result = (
+            supabase.table("events")
+            .select("*")
+            .in_("id", event_ids)
+            .eq("is_cancelled", False)
+            .gte("start_time", now_iso)
+            .order("start_time")
+            .execute()
+        )
+        events = events_result.data or []
+    except Exception:
+        return []
+
+    if not events:
+        return []
+
+    # 4. Batch-fetch sports and hosts
+    sport_ids = list({e["sport_id"] for e in events if e.get("sport_id")})
+    host_ids = list({e["host_id"] for e in events if e.get("host_id")})
+    sports_by_id: dict = {}
+    hosts_by_id: dict = {}
+
+    if sport_ids:
+        try:
+            s_res = supabase.table("sports").select("id, name, icon").in_("id", sport_ids).execute()
+            for s in (s_res.data or []):
+                sports_by_id[s["id"]] = {"id": s["id"], "name": s.get("name") or "Unknown Sport", "icon": s.get("icon") or "🏃"}
+        except Exception:
+            pass
+
+    if host_ids:
+        try:
+            h_res = supabase.table("users").select("id, full_name, avatar_url").in_("id", host_ids).execute()
+            for u in (h_res.data or []):
+                hosts_by_id[u["id"]] = {"id": u["id"], "full_name": u.get("full_name") or "Unknown", "avatar_url": u.get("avatar_url")}
+        except Exception:
+            pass
+
+    # 5. Batch participant counts
+    try:
+        pc_res = (
+            supabase.table("event_rsvps")
+            .select("event_id, user_id, status")
+            .in_("event_id", event_ids)
+            .execute()
+        )
+        participant_counts: dict = {}
+        for r in (pc_res.data or []):
+            if r.get("status") == "approved":
+                participant_counts[r["event_id"]] = participant_counts.get(r["event_id"], 0) + 1
+    except Exception:
+        participant_counts = {}
+
+    result = []
+    for event in events:
+        eid = event["id"]
+        sport_id_val = event.get("sport_id")
+        host_id_val = event.get("host_id")
+        result.append(EventResponse(
+            id=eid,
+            title=event["title"],
+            description=event.get("description"),
+            location=event.get("location"),
+            start_time=event["start_time"],
+            end_time=event.get("end_time"),
+            sport_id=sport_id_val,
+            host_id=host_id_val,
+            max_participants=event.get("max_participants"),
+            is_cancelled=event.get("is_cancelled", False),
+            is_public=event.get("is_public", True),
+            is_featured=event.get("is_featured", False),
+            image_url=event.get("image_url"),
+            cover_image_url=event.get("cover_image_url"),
+            created_at=event.get("created_at"),
+            updated_at=event.get("updated_at"),
+            participant_count=participant_counts.get(eid, 0),
+            sport=sports_by_id.get(sport_id_val) if sport_id_val else None,
+            host=hosts_by_id.get(host_id_val) if host_id_val else None,
+        ))
+    return result

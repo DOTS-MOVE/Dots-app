@@ -83,6 +83,9 @@ function ProfilePageContent() {
     location: '',
     avatar_url: '',
     cover_image_url: '',
+    gender: '',
+    is_organisation: false,
+    has_disability: false,
     sport_ids: [] as number[],
     goal_ids: [] as number[],
   });
@@ -181,7 +184,7 @@ function ProfilePageContent() {
       console.error('Failed to connect:', error);
       setNotice({
         variant: 'error',
-        title: 'Couldn’t send request',
+        title: "Couldn't send request",
         message: error.message || 'Failed to send connection request',
       });
     } finally {
@@ -206,6 +209,9 @@ function ProfilePageContent() {
         cover_image_url: user.cover_image_url || '',
         sport_ids: user.sports?.map(s => s.id).filter(Boolean) || [],
         goal_ids: user.goals?.map(g => g.id).filter(Boolean) || [],
+        gender: user.gender || '',
+        is_organisation: user.is_organisation || false,
+        has_disability: user.has_disability || false,
       });
       setPhotos(userPhotos);
       setIsDiscoverable(user.is_discoverable || false);
@@ -213,6 +219,7 @@ function ProfilePageContent() {
       setFormData({
         full_name: '', age: '', bio: '', location: '',
         avatar_url: '', cover_image_url: '', sport_ids: [], goal_ids: [],
+        gender: '', is_organisation: false, has_disability: false,
       });
       setPhotos([]);
       setIsDiscoverable(false);
@@ -434,8 +441,10 @@ function ProfilePageContent() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const hasImagesToUpload = !!(avatarFile || coverFile || photoFiles.some(Boolean));
     setSaving(true);
-    setUploadingImages(true);
+    if (hasImagesToUpload) setUploadingImages(true);
 
     try {
       const userId = currentUser?.id;
@@ -459,22 +468,36 @@ function ProfilePageContent() {
           : Promise.resolve(formData.cover_image_url),
       ]);
 
-      // Update basic profile info with uploaded image URLs
+      // Build update payload — send null for empty strings so DB stores NULL not ""
       const updateData = {
-        ...formData,
-        avatar_url: avatarUrl,
-        cover_image_url: coverImageUrl,
+        full_name: formData.full_name || null,
         age: formData.age ? parseInt(formData.age) : null,
+        bio: formData.bio || null,
+        location: formData.location || null,
+        avatar_url: avatarUrl || null,
+        cover_image_url: coverImageUrl || null,
+        // For orgs, personal fields don't apply
+        gender: formData.is_organisation ? null : (formData.gender || null),
+        is_organisation: formData.is_organisation,
+        has_disability: formData.is_organisation ? false : formData.has_disability,
+        sport_ids: formData.sport_ids,
+        goal_ids: formData.goal_ids,
         is_discoverable: isDiscoverable,
       };
       await api.updateUser(updateData);
 
-      // Delete existing photos in parallel (don't block on failures)
-      if (user?.photos?.length) {
-        await Promise.allSettled(user.photos.map((p) => api.deleteUserPhoto(p.id)));
+      // Gallery photos: only delete ones the user removed, don't touch unchanged ones
+      const existingPhotos = user?.photos || [];
+      const keptUrls = new Set(
+        photos.filter(Boolean).filter(p => !p.startsWith('data:') && !p.startsWith('blob:'))
+      );
+      const removedPhotos = existingPhotos.filter(p => !keptUrls.has(p.photo_url));
+
+      if (removedPhotos.length > 0) {
+        await Promise.allSettled(removedPhotos.map(p => api.deleteUserPhoto(p.id)));
       }
 
-      // Upload new photos and add to profile in parallel
+      // Upload only newly selected photo files
       const photoPromises = photoFiles
         .map((file, index) => (file ? { file, index } : null))
         .filter((x): x is { file: File; index: number } => x !== null);
@@ -510,7 +533,7 @@ function ProfilePageContent() {
     } catch (error: any) {
       setNotice({
         variant: 'error',
-        title: 'Couldn’t save profile',
+        title: 'Couldn\'t save profile',
         message: error?.message || 'Failed to update profile',
       });
     } finally {
@@ -786,7 +809,7 @@ function ProfilePageContent() {
                           onClick={() => setShowCreatePost(true)}
                           className="flex-1 text-left text-gray-500 hover:text-gray-700 transition-colors"
                         >
-                          What's on your mind?
+                          What&apos;s on your mind?
                         </button>
                       </div>
                     ) : (
@@ -966,10 +989,40 @@ function ProfilePageContent() {
               <div className="rounded-xl border border-[#0ef9b4]/40 bg-[#0ef9b4]/10 px-4 py-3 text-sm text-gray-800">
                 <p className="font-semibold text-gray-900">Finish your account setup</p>
                 <p className="mt-1 text-gray-700 leading-relaxed">
-                  Same fields as the setup flow—photos, sports, goals, and discovery. Saving this form also marks your profile complete so you’re not stuck in the welcome screens.
+                  Same fields as the setup flow—photos, sports, goals, and discovery. Saving this form also marks your profile complete so you&apos;re not stuck in the welcome screens.
                 </p>
               </div>
             )}
+            {/* Organisation toggle */}
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
+              <div>
+                <p className="text-sm font-medium text-gray-900">Organisation account</p>
+                <p className="text-xs text-gray-500 mt-0.5">Clubs, gyms, teams — disables personal fields like age and gender</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, is_organisation: !formData.is_organisation })}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none ${formData.is_organisation ? 'bg-[#0ef9b4]' : 'bg-gray-300'}`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ${formData.is_organisation ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+
+            {/* Verification badge — read-only, admin-set */}
+            {formData.is_organisation && (
+              <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${currentUser?.is_verified ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+                <span className="text-lg">{currentUser?.is_verified ? '✅' : '⏳'}</span>
+                <div>
+                  <p className={`text-sm font-semibold ${currentUser?.is_verified ? 'text-emerald-800' : 'text-amber-800'}`}>
+                    {currentUser?.is_verified ? 'Verified organisation' : 'Verification pending'}
+                  </p>
+                  <p className={`text-xs ${currentUser?.is_verified ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {currentUser?.is_verified ? 'Your organisation has been verified.' : 'Our team will review and verify your organisation account.'}
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div>
               <label className="block text-sm font-medium text-gray-700">Full Name</label>
               <input
@@ -980,14 +1033,33 @@ function ProfilePageContent() {
               />
             </div>
 
-            <div>
+            <div className={formData.is_organisation ? 'opacity-40 pointer-events-none' : ''}>
               <label className="block text-sm font-medium text-gray-700">Age</label>
+              {formData.is_organisation && <p className="text-xs text-gray-400 mt-0.5">Not applicable for organisations</p>}
               <input
                 type="number"
                 value={formData.age}
                 onChange={(e) => setFormData({ ...formData, age: e.target.value })}
-                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2"
+                disabled={formData.is_organisation}
+                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 disabled:bg-gray-50"
               />
+            </div>
+
+            <div className={formData.is_organisation ? 'opacity-40 pointer-events-none' : ''}>
+              <label className="block text-sm font-medium text-gray-700">Gender <span className="text-gray-400 font-normal">(optional)</span></label>
+              {formData.is_organisation && <p className="text-xs text-gray-400 mt-0.5">Not applicable for organisations</p>}
+              <select
+                value={formData.gender}
+                onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                disabled={formData.is_organisation}
+                className="mt-1 block w-full border border-gray-300 rounded-md px-3 py-2 bg-white disabled:bg-gray-50"
+              >
+                <option value="">Prefer not to say</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="non-binary">Non-binary</option>
+                <option value="other">Other</option>
+              </select>
             </div>
 
             <div>
@@ -1293,12 +1365,29 @@ function ProfilePageContent() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-gray-900">No, not right now</h3>
-                      <p className="text-sm text-gray-600">You won't be able to discover others or be discovered</p>
+                      <p className="text-sm text-gray-600">You won&apos;t be able to discover others or be discovered</p>
                     </div>
                   </div>
                 </button>
               </div>
             </div>
+
+            {/* Disability — optional, only for individual accounts */}
+            {!formData.is_organisation && (
+              <div className="flex items-start gap-3 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                <input
+                  type="checkbox"
+                  id="has_disability"
+                  checked={formData.has_disability}
+                  onChange={(e) => setFormData({ ...formData, has_disability: e.target.checked })}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-[#0ef9b4] accent-[#0ef9b4]"
+                />
+                <label htmlFor="has_disability" className="text-sm cursor-pointer">
+                  <span className="font-medium text-gray-900">I have a disability</span>
+                  <p className="text-xs text-gray-500 mt-0.5">Optional — helps us surface accessible events and buddies for you</p>
+                </label>
+              </div>
+            )}
 
             <div className="flex justify-end">
               <button

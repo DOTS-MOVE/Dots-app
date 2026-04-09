@@ -13,12 +13,19 @@ import { api } from '@/lib/api';
 import { Event } from '@/types';
 
 export default function EventDetailPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const router = useRouter();
   const params = useParams();
   const eventId = parseInt(params.id as string);
   const [event, setEvent] = useState<Event | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Redirect unauthenticated users to login with a return URL
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.replace('/login?redirect=' + encodeURIComponent('/events/' + eventId));
+    }
+  }, [authLoading, user, eventId, router]);
   const [rsvping, setRsvping] = useState(false);
   const [isParticipant, setIsParticipant] = useState(false);
   const [heroImageError, setHeroImageError] = useState(false);

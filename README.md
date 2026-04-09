@@ -12,7 +12,7 @@ MVP implementation for connecting fitness enthusiasts with workout buddies and l
 
 ## Getting Started
 
-### Prerequisites
+### Prerequisites 
 
 - Node.js >= 20.9.0
 - Python 3.11+
@@ -110,14 +110,47 @@ alembic upgrade head
 alembic downgrade -1
 ```
 
-## Production (Vercel)
+## Environments & hosting
 
-1. **Set environment variables** in Vercel Project Settings → Environment Variables:
-   - `NEXT_PUBLIC_SUPABASE_URL` – Your Supabase project URL (e.g. `https://xxx.supabase.co`)
-   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY` – Supabase anon/public key
-   - `NEXT_PUBLIC_API_URL` – Backend API URL (e.g. Cloud Run URL)
+### Git branches
 
-2. **Redeploy after adding vars** – `NEXT_PUBLIC_` variables are embedded at build time; changes require a new deployment.
+- **`dev`** — day-to-day work: push feature work here. This branch drives the **dev** frontend and the **development** backend.
+- **`main`** — **production**. Treat it as stable: only merge **`dev` → `main`** when you are ready to release (avoid pushing experimental work straight to `main`).
+
+### Google Cloud (backend)
+
+The FastAPI API runs on **Google Cloud Run** in project `dots-490015` (override via CI secret `GCP_PROJECT_ID` if needed).
+
+| What | Purpose |
+|------|--------|
+| **Cloud Run `dots-backend`** | Production API (deployed from **`main`** when `backend/` changes). |
+| **Cloud Run `dots-backend-dev`** | Development API (deployed from **`dev`** when `backend/` changes). |
+| **Cloud Build** | Builds the Docker image from `backend/cloudbuild.yaml` on each deploy. |
+| **Container Registry (`gcr.io/...`)** | Stores built images tagged with the Git commit SHA in CI. |
+
+**CI/CD:** `.github/workflows/deploy-backend.yml` runs on push to `main` or `dev` when files under `backend/` (or the workflow) change. Configure GitHub Actions secrets:
+
+- `GCP_SA_KEY` — JSON key for the deploy service account (see workflow comments for IAM roles).
+- `GCP_PROJECT_ID` — optional; defaults to `dots-490015`.
+
+Set runtime secrets on each Cloud Run service in the GCP console (e.g. `SUPABASE_URL`, `SUPABASE_KEY`, `SECRET_KEY`, `CORS_ORIGINS`). **Dev** and **prod** can point at different values or the same Supabase project, depending on how you want to isolate data.
+
+### Vercel (frontend)
+
+Two logical environments:
+
+| Environment | Git | Frontend URL | Backend (`NEXT_PUBLIC_API_URL`) |
+|-------------|-----|----------------|-----------------------------------|
+| **Production** | **`main`** | Production domain (e.g. dotsmove.com) | Cloud Run **`dots-backend`** URL |
+| **Dev** | **`dev`** | **https://dev.dotsmove.com** | Cloud Run **`dots-backend-dev`** |
+
+In **Vercel → Project → Settings → Environment Variables**, assign each variable to the right **environment** (**dev**, or a dedicated Preview branch for `dev`):
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY`
+- `NEXT_PUBLIC_API_URL` — **must** be the **dev** Cloud Run URL for builds from `dev`, and the **prod** Cloud Run URL for **`main`**.
+
+`NEXT_PUBLIC_*` values are baked in at **build time**; change the URL, then **redeploy** that environment.
 
 ## License
 

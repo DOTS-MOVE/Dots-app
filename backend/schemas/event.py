@@ -12,6 +12,7 @@ class EventBase(BaseModel):
     end_time: Optional[datetime] = None
     max_participants: Optional[int] = None
     is_public: bool = True
+    is_featured: bool = False
     cover_image_url: Optional[str] = None
 
 
@@ -29,6 +30,7 @@ class EventUpdate(BaseModel):
     max_participants: Optional[int] = None
     is_cancelled: Optional[bool] = None
     is_public: Optional[bool] = None
+    is_featured: Optional[bool] = None
     image_url: Optional[str] = None
     cover_image_url: Optional[str] = None
 

@@ -47,9 +47,14 @@ CREATE TABLE IF NOT EXISTS public.users (
     location VARCHAR,
     avatar_url VARCHAR,
     cover_image_url VARCHAR,
+    gender VARCHAR,
+    is_organisation BOOLEAN DEFAULT false,
+    is_verified BOOLEAN DEFAULT false,
+    has_disability BOOLEAN DEFAULT false,
     role user_role DEFAULT 'user',
     is_active BOOLEAN DEFAULT true,
     is_discoverable BOOLEAN DEFAULT false,
+    is_featured BOOLEAN DEFAULT false,
     profile_completed BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE
@@ -160,6 +165,7 @@ CREATE TABLE IF NOT EXISTS public.events (
     max_participants INTEGER,
     is_cancelled BOOLEAN DEFAULT false,
     is_public BOOLEAN DEFAULT true,
+    is_featured BOOLEAN DEFAULT false,
     image_url VARCHAR,
     cover_image_url VARCHAR,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -265,6 +271,7 @@ CREATE INDEX IF NOT EXISTS idx_user_photos_user_id ON public.user_photos(user_id
 -- Events indexes
 CREATE INDEX IF NOT EXISTS idx_events_title ON public.events(title);
 CREATE INDEX IF NOT EXISTS idx_events_start_time ON public.events(start_time);
+CREATE INDEX IF NOT EXISTS idx_events_is_featured ON public.events(is_featured);
 CREATE INDEX IF NOT EXISTS idx_events_host_id ON public.events(host_id);
 CREATE INDEX IF NOT EXISTS idx_events_sport_id ON public.events(sport_id);
 

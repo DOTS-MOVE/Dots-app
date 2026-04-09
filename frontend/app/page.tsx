@@ -9,17 +9,20 @@ import ProfileAvatar from '@/components/ProfileAvatar';
 import SearchBar from '@/components/SearchBar';
 import FilterChips from '@/components/FilterChips';
 import LoadingScreen from '@/components/LoadingScreen';
+import Carousel from '@/components/Carousel';
 import { SparklesIcon, CalendarDaysIcon } from '@/components/Icons';
 import { useEvents, useSports } from '@/lib/hooks';
 import { api } from '@/lib/api';
 import { Event, User } from '@/types';
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function Home() {
   const { user, loading } = useAuth();
   const { events: eventsData, isLoading: eventsLoading } = useEvents();
   const { sports, isLoading: sportsLoading } = useSports();
   const [people, setPeople] = useState<User[]>([]);
+  const [featuredProfiles, setFeaturedProfiles] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSport, setSelectedSport] = useState<number | null>(null);
   const [searchMode, setSearchMode] = useState<'all' | 'events' | 'people'>('all');
@@ -64,7 +67,7 @@ export default function Home() {
   }, [events]);
 
   // Featured and main lists: only future events
-  const featuredEvents = futureEvents.slice(0, 3);
+  const featuredEvents = futureEvents.filter(e => e.is_featured === true);
   const otherEvents = futureEvents.slice(3);
 
   useEffect(() => {
@@ -74,6 +77,25 @@ export default function Home() {
       setPeople([]);
     }
   }, [searchQuery, searchMode]);
+
+  useEffect(() => {
+    const fetchFeaturedProfiles = async () => {
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const token = await api.getToken();
+        const headers: HeadersInit = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const response = await fetch(`${baseUrl}/users/featured`, { headers });
+        if (response.ok) {
+          const data = await response.json();
+          setFeaturedProfiles(data);
+        }
+      } catch {
+        // silently fail — section just won't render
+      }
+    };
+    fetchFeaturedProfiles();
+  }, []);
 
   const loadingData = eventsLoading || sportsLoading;
 
@@ -170,7 +192,7 @@ export default function Home() {
             <h1 className="text-4xl md:text-5xl font-bold text-white mb-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
               Discover Your Next Workout
             </h1>
-            <p className="text-xl text-white/90 mb-12 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150">
+            <p className="text-2xl text-white/90 mb-12 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-150">
               Find events, connect with partners, and stay active
             </p>
           </div>
@@ -276,7 +298,7 @@ export default function Home() {
               <h2 className="text-2xl font-bold text-gray-900">Events</h2>
               <span className="text-sm text-gray-500">{events.length} result{events.length !== 1 ? 's' : ''}</span>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 items-start">
               {events.map((event) => (
                 <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4 h-full">
                   <EventCardLarge event={event} />
@@ -314,13 +336,76 @@ export default function Home() {
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
               </Link>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
-              {featuredEvents.map((event, index) => (
-                <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4 h-full" style={{ animationDelay: `${index * 100}ms` }}>
-                  <EventCardLarge event={event} />
-                </div>
-              ))}
+            <Carousel
+              items={featuredEvents}
+              autoScrollInterval={4500}
+              renderItem={(event) => <EventCardLarge event={event} />}
+            />
+          </div>
+        )}
+
+        {/* Featured Profiles - Only show when not searching */}
+        {!searchQuery.trim() && featuredProfiles.length > 0 && (
+          <div className="mb-12 animate-in fade-in duration-500">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-2xl font-bold text-gray-900">Featured Profiles</h2>
             </div>
+            <Carousel
+              items={featuredProfiles}
+              autoScrollInterval={5000}
+              renderItem={(person) => (
+                <Link
+                  href={`/profile?userId=${person.id}`}
+                  className="block h-full bg-white rounded-2xl shadow-md border border-gray-100 overflow-hidden hover:shadow-xl transition-all duration-300 group"
+                >
+                  {/* Banner */}
+                  <div className="h-24 bg-gradient-to-br from-[#0ef9b4]/30 via-emerald-300/20 to-transparent relative">
+                    <div className="absolute -bottom-9 left-5">
+                      <div className="w-[72px] h-[72px] rounded-full border-4 border-white shadow-md overflow-hidden bg-[#E6F9F4] relative shrink-0">
+                        {person.avatar_url ? (
+                          <Image
+                            src={person.avatar_url}
+                            alt={person.full_name || 'Profile'}
+                            fill
+                            sizes="72px"
+                            className="object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-2xl font-bold text-[#0dd9a0]">
+                            {(person.full_name?.[0] || 'U').toUpperCase()}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Content */}
+                  <div className="pt-12 pb-5 px-5">
+                    <p className="font-bold text-gray-900 text-lg truncate group-hover:text-[#0dd9a0] transition-colors duration-200">
+                      {person.full_name || 'User'}
+                    </p>
+                    {person.location && (
+                      <p className="text-sm text-gray-500 truncate mb-2">{person.location}</p>
+                    )}
+                    {person.bio && (
+                      <p className="text-sm text-gray-600 line-clamp-2 mb-3 leading-relaxed">{person.bio}</p>
+                    )}
+                    {person.sports && person.sports.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {person.sports.slice(0, 3).map((sport: any) => (
+                          <span
+                            key={sport.id}
+                            className="text-xs bg-[#E6F9F4] text-[#0dd9a0] px-2.5 py-1 rounded-full font-medium"
+                          >
+                            {sport.icon} {sport.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </Link>
+              )}
+            />
           </div>
         )}
 
@@ -337,7 +422,7 @@ export default function Home() {
                 Create Event
               </Link>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 items-start">
               {otherEvents.map((event, index) => (
                 <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4 h-full" style={{ animationDelay: `${index * 50}ms` }}>
                   <EventCardLarge event={event} />
@@ -351,7 +436,7 @@ export default function Home() {
         {!searchQuery.trim() && pastEvents.length > 0 && (
           <div className="mt-12 animate-in fade-in duration-500">
             <h2 className="text-xl font-semibold text-gray-400 mb-6 uppercase tracking-wide text-sm">Previous Events</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 items-start">
               {pastEvents.map((event, index) => (
                 <div key={event.id} className="animate-in fade-in slide-in-from-bottom-4 opacity-90 h-full" style={{ animationDelay: `${index * 50}ms` }}>
                   <EventCardLarge event={event} />
