@@ -665,8 +665,9 @@ function BuddiesPageContent() {
       )}
 
       {/* Buddy Events — always visible below all tabs */}
-
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-in fade-in duration-500">
+{
+  buddyEvents.length > 0 && (
+ <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-in fade-in duration-500">
           <h2 className="text-xl font-bold text-gray-900 mb-6">Events Your Buddies Are Attending</h2>
           <Carousel
             items={buddyEvents}
@@ -674,6 +675,9 @@ function BuddiesPageContent() {
             renderItem={(event) => <EventCardLarge event={event} />}
           />
         </div>
+
+  )
+}
 
 
       {/* Connection Message Modal */}
